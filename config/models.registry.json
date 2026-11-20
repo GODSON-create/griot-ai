@@ -1,0 +1,427 @@
+{
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-11-20T00:00:00Z",
+  "pricingUnit": "USD_PER_1M_TOKENS",
+  "pricingNote": "All prices are official published vendor list prices per 1,000,000 tokens in USD. Operators may update this JSON file or apply database overrides without modifying application code.",
+  "models": [
+    {
+      "id": "openai:gpt-4o-mini",
+      "provider": "openai",
+      "modelIdentifier": "gpt-4o-mini",
+      "displayName": "OpenAI GPT-4o Mini",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "extraction",
+        "coding",
+        "vision",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "inputPricingPer1M": 0.15,
+      "cachedInputPricingPer1M": 0.075,
+      "outputPricingPer1M": 0.60,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 90
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "openai:gpt-4o",
+      "provider": "openai",
+      "modelIdentifier": "gpt-4o",
+      "displayName": "OpenAI GPT-4o",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "reasoning",
+        "coding",
+        "vision",
+        "document_analysis",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "inputPricingPer1M": 2.50,
+      "cachedInputPricingPer1M": 1.25,
+      "outputPricingPer1M": 10.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["standard", "premium", "enterprise"],
+        "reasoningTier": "advanced",
+        "latencyClass": "medium",
+        "priorityWeight": 85
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "openai:o3-mini",
+      "provider": "openai",
+      "modelIdentifier": "o3-mini",
+      "displayName": "OpenAI o3-mini (Reasoning)",
+      "capabilities": [
+        "chat",
+        "reasoning",
+        "coding",
+        "math",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 200000,
+      "maxOutputTokens": 100000,
+      "inputPricingPer1M": 1.10,
+      "cachedInputPricingPer1M": 0.55,
+      "outputPricingPer1M": 4.40,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["standard", "premium", "enterprise"],
+        "reasoningTier": "deep_reasoning",
+        "latencyClass": "slow",
+        "priorityWeight": 88
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "openai:text-embedding-3-small",
+      "provider": "openai",
+      "modelIdentifier": "text-embedding-3-small",
+      "displayName": "OpenAI Text Embedding 3 Small",
+      "capabilities": ["embeddings"],
+      "contextWindow": 8191,
+      "maxOutputTokens": 0,
+      "inputPricingPer1M": 0.02,
+      "cachedInputPricingPer1M": 0.02,
+      "outputPricingPer1M": 0.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["embedding"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard", "premium", "enterprise"],
+        "reasoningTier": "none",
+        "latencyClass": "fast",
+        "priorityWeight": 95
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "gemini:gemini-2.0-flash",
+      "provider": "gemini",
+      "modelIdentifier": "gemini-2.0-flash",
+      "displayName": "Google Gemini 2.0 Flash",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "extraction",
+        "coding",
+        "vision",
+        "document_analysis",
+        "audio_understanding",
+        "video_understanding",
+        "long_context",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputPricingPer1M": 0.10,
+      "cachedInputPricingPer1M": 0.025,
+      "outputPricingPer1M": 0.40,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image", "pdf", "document", "audio", "video"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard", "premium"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 96
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "gemini:gemini-2.5-pro",
+      "provider": "gemini",
+      "modelIdentifier": "gemini-2.5-pro",
+      "displayName": "Google Gemini 2.5 Pro",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "reasoning",
+        "coding",
+        "math",
+        "vision",
+        "document_analysis",
+        "audio_understanding",
+        "video_understanding",
+        "long_context",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputPricingPer1M": 1.25,
+      "cachedInputPricingPer1M": 0.3125,
+      "outputPricingPer1M": 10.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image", "pdf", "document", "audio", "video"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["standard", "premium", "enterprise"],
+        "reasoningTier": "deep_reasoning",
+        "latencyClass": "medium",
+        "priorityWeight": 92
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "anthropic:claude-3-5-haiku-20241022",
+      "provider": "anthropic",
+      "modelIdentifier": "claude-3-5-haiku-20241022",
+      "displayName": "Anthropic Claude 3.5 Haiku",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "coding",
+        "vision",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "inputPricingPer1M": 0.80,
+      "cachedInputPricingPer1M": 0.08,
+      "outputPricingPer1M": 4.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 84
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "anthropic:claude-3-7-sonnet-20250219",
+      "provider": "anthropic",
+      "modelIdentifier": "claude-3-7-sonnet-20250219",
+      "displayName": "Anthropic Claude 3.7 Sonnet",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "reasoning",
+        "coding",
+        "math",
+        "vision",
+        "document_analysis",
+        "long_context",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000,
+      "inputPricingPer1M": 3.00,
+      "cachedInputPricingPer1M": 0.30,
+      "outputPricingPer1M": 15.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image", "pdf", "document"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["standard", "premium", "enterprise"],
+        "reasoningTier": "deep_reasoning",
+        "latencyClass": "medium",
+        "priorityWeight": 94
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "mistral:mistral-small-latest",
+      "provider": "mistral",
+      "modelIdentifier": "mistral-small-latest",
+      "displayName": "Mistral Small 3",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "extraction",
+        "coding",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 32768,
+      "maxOutputTokens": 8192,
+      "inputPricingPer1M": 0.10,
+      "cachedInputPricingPer1M": 0.10,
+      "outputPricingPer1M": 0.30,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 89
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "mistral:mistral-large-latest",
+      "provider": "mistral",
+      "modelIdentifier": "mistral-large-latest",
+      "displayName": "Mistral Large 2",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "reasoning",
+        "coding",
+        "document_analysis",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "inputPricingPer1M": 2.00,
+      "cachedInputPricingPer1M": 2.00,
+      "outputPricingPer1M": 6.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["standard", "premium", "enterprise"],
+        "reasoningTier": "advanced",
+        "latencyClass": "medium",
+        "priorityWeight": 82
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "mistral:codestral-latest",
+      "provider": "mistral",
+      "modelIdentifier": "codestral-latest",
+      "displayName": "Mistral Codestral",
+      "capabilities": [
+        "chat",
+        "coding",
+        "reasoning",
+        "json_mode",
+        "streaming"
+      ],
+      "contextWindow": 256000,
+      "maxOutputTokens": 32768,
+      "inputPricingPer1M": 0.30,
+      "cachedInputPricingPer1M": 0.30,
+      "outputPricingPer1M": 0.90,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard", "premium"],
+        "reasoningTier": "advanced",
+        "latencyClass": "fast",
+        "priorityWeight": 91
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
+      "id": "open_weight:llama-3.3-70b-instruct",
+      "provider": "open_weight",
+      "modelIdentifier": "meta-llama/Llama-3.3-70B-Instruct",
+      "displayName": "Llama 3.3 70B Instruct (Open-Weight Endpoint)",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "reasoning",
+        "coding",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 131072,
+      "maxOutputTokens": 16384,
+      "inputPricingPer1M": null,
+      "cachedInputPricingPer1M": null,
+      "outputPricingPer1M": null,
+      "availability": "offline",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": false,
+        "tiers": ["economy", "standard", "enterprise"],
+        "reasoningTier": "advanced",
+        "latencyClass": "fast",
+        "priorityWeight": 75
+      },
+      "deploymentType": "self_hosted_or_compatible_endpoint"
+    }
+  ]
+}

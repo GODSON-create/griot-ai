@@ -1,0 +1,23 @@
+{
+  "name": "griot-ai",
+  "version": "1.0.0",
+  "description": "GRIOT AI — Core AI Infrastructure, Multi-Provider Model Orchestration, Knowledge Retrieval, and Multi-Tenant Economics Engine (Avantage Group)",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GODSON-create/griot-ai.git"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings src/server.ts",
+    "dev": "node --no-warnings --watch src/server.ts",
+    "test": "node --no-warnings --test tests/phase1.unit.test.ts tests/phase1.api.test.ts tests/phase1.liveProviders.test.ts",
+    "test:unit": "node --no-warnings --test tests/phase1.unit.test.ts",
+    "test:api": "node --no-warnings --test tests/phase1.api.test.ts",
+    "test:live": "node --no-warnings --test tests/phase1.liveProviders.test.ts",
+    "typecheck": "node \"../DOT/dotlive/node_modules/typescript/bin/tsc\" --noEmit"
+  }
+}
