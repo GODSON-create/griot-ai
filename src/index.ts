@@ -12,6 +12,7 @@ export * from './security/rateLimiter.ts';
 export * from './security/auditAndRetention.ts';
 export * from './tenancy/tenantService.ts';
 export * from './registry/modelRegistry.ts';
+export * from './products/productModules.ts';
 export * from './providers/adapter.ts';
 export * from './providers/openaiAdapter.ts';
 export * from './providers/geminiAdapter.ts';

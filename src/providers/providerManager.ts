@@ -1,11 +1,25 @@
 // ============================================================================
-// GRIOT AI — PROVIDER MANAGER, CREDENTIAL RESOLVER & CIRCUIT BREAKER
+// GRIOT AI — PROVIDER MANAGER, CREDENTIAL RESOLVER, TIMEOUT/RETRY & MOCK ADAPTER
+// Supports live official provider adapters, configurable timeouts & retries,
+// circuit breaker failover, and clearly distinguished development mock mode
+// when real provider credentials are unavailable.
 // ============================================================================
 
 import type { GriotConfig } from '../config/env.ts';
 import type { TenantService } from '../tenancy/tenantService.ts';
-import type { ProviderName } from '../types/domain.ts';
-import type { FetchFunction, ModelProviderAdapter, ProviderCredentials } from './adapter.ts';
+import type {
+  ProviderGenerationRequest,
+  ProviderGenerationResponse,
+  ProviderName,
+  ProviderStreamChunk,
+} from '../types/domain.ts';
+import {
+  estimateTokenCount,
+  ProviderError,
+  type FetchFunction,
+  type ModelProviderAdapter,
+  type ProviderCredentials,
+} from './adapter.ts';
 import { AnthropicProviderAdapter } from './anthropicAdapter.ts';
 import { GeminiProviderAdapter } from './geminiAdapter.ts';
 import { MistralProviderAdapter } from './mistralAdapter.ts';
@@ -15,6 +29,7 @@ import { OpenWeightProviderAdapter } from './openWeightAdapter.ts';
 export interface ProviderHealthState {
   provider: ProviderName;
   configured: boolean;
+  mode: 'live' | 'mock_fallback' | 'unconfigured';
   circuitOpen: boolean;
   consecutiveFailures: number;
   totalRequests: number;
@@ -100,16 +115,194 @@ export class ProviderManager {
     };
   }
 
+  public hasLiveCredentials(provider: ProviderName, orgId?: string): boolean {
+    const creds = this.resolveCredentials(provider, orgId);
+    return Boolean(creds.apiKey && creds.apiKey.trim());
+  }
+
   public isProviderAvailable(provider: ProviderName, orgId?: string): boolean {
     const state = this.healthStates.get(provider);
     if (state && state.circuitOpenUntilMs > Date.now()) {
       return false;
     }
-    const creds = this.resolveCredentials(provider, orgId);
-    if (provider === 'open_weight') {
-      return Boolean(creds.apiKey && creds.apiKey.trim());
+    if (this.hasLiveCredentials(provider, orgId)) {
+      return true;
     }
-    return Boolean(creds.apiKey && creds.apiKey.trim());
+    return this.config.allowMockProvidersWhenUnconfigured;
+  }
+
+  /**
+   * Executes generation with timeout handling, retry limits, and transparent mock fallback
+   * when live credentials are absent and `allowMockProvidersWhenUnconfigured` is enabled.
+   */
+  public async executeGenerate(
+    request: ProviderGenerationRequest,
+    orgId?: string
+  ): Promise<ProviderGenerationResponse> {
+    const provider = request.model.provider;
+    const credentials = this.resolveCredentials(provider, orgId);
+    const hasLiveKey = Boolean(credentials.apiKey && credentials.apiKey.trim());
+
+    if (!hasLiveKey && this.config.allowMockProvidersWhenUnconfigured) {
+      return this.generateMockResponse(request);
+    }
+
+    const adapter = this.getAdapter(provider);
+    const maxAttempts = Math.max(1, 1 + (this.config.maxRetriesPerProvider ?? 1));
+    const timeoutMs = request.timeoutMs ?? this.config.requestTimeoutMs ?? 30000;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const timeoutController = new AbortController();
+      const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+      const onCallerAbort = () => timeoutController.abort();
+      request.abortSignal?.addEventListener('abort', onCallerAbort, { once: true });
+
+      try {
+        const res = await adapter.generate(
+          {
+            ...request,
+            abortSignal: timeoutController.signal,
+          },
+          credentials
+        );
+        res.executionMode = 'live';
+        this.recordSuccess(provider, res.latencyMs);
+        return res;
+      } catch (err) {
+        if (timeoutController.signal.aborted && !request.abortSignal?.aborted) {
+          lastError = new ProviderError({
+            provider,
+            category: 'timeout',
+            statusCode: 504,
+            retryable: true,
+            message: `${provider} request timed out after ${timeoutMs}ms`,
+          });
+        } else {
+          lastError = err as Error;
+        }
+        const canRetry =
+          attempt < maxAttempts &&
+          lastError instanceof ProviderError &&
+          lastError.retryable;
+        if (!canRetry) {
+          this.recordFailure(provider, lastError.message);
+          throw lastError;
+        }
+      } finally {
+        clearTimeout(timer);
+        request.abortSignal?.removeEventListener('abort', onCallerAbort);
+      }
+    }
+
+    throw lastError || new Error(`Provider '${provider}' failed after ${maxAttempts} attempts`);
+  }
+
+  /**
+   * Executes streaming generation with transparent mock fallback when live credentials
+   * are absent and `allowMockProvidersWhenUnconfigured` is enabled.
+   */
+  public async *executeStream(
+    request: ProviderGenerationRequest,
+    orgId?: string
+  ): AsyncGenerator<ProviderStreamChunk, void, unknown> {
+    const provider = request.model.provider;
+    const credentials = this.resolveCredentials(provider, orgId);
+    const hasLiveKey = Boolean(credentials.apiKey && credentials.apiKey.trim());
+
+    if (!hasLiveKey && this.config.allowMockProvidersWhenUnconfigured) {
+      yield* this.streamMockResponse(request);
+      return;
+    }
+
+    const adapter = this.getAdapter(provider);
+    for await (const chunk of adapter.stream(request, credentials)) {
+      yield { ...chunk, executionMode: 'live' };
+    }
+  }
+
+  private async generateMockResponse(
+    request: ProviderGenerationRequest
+  ): Promise<ProviderGenerationResponse> {
+    const startMs = Date.now();
+    const lastUser = [...request.messages].reverse().find((m) => m.role === 'user');
+    const promptPreview = (lastUser?.content || 'Hello').slice(0, 120);
+    const inputTokens = estimateTokenCount(
+      request.messages.map((m) => m.content).join('\n')
+    );
+
+    const mockText =
+      request.responseFormat === 'json_object'
+        ? JSON.stringify({
+            executionMode: 'mock',
+            model: request.model.id,
+            provider: request.model.provider,
+            summary: `Simulated GRIOT development response for: ${promptPreview}`,
+          })
+        : `[GRIOT MOCK ADAPTER — ${request.model.displayName} (${request.model.id})] Simulated response for: "${promptPreview}"`;
+
+    const outputTokens = estimateTokenCount(mockText);
+    const latencyMs = Math.max(1, Date.now() - startMs);
+    this.recordSuccess(request.model.provider, latencyMs);
+
+    return {
+      provider: request.model.provider,
+      modelId: request.model.id,
+      modelIdentifier: request.model.modelIdentifier,
+      content: mockText,
+      finishReason: 'stop',
+      executionMode: 'mock',
+      usage: {
+        inputTokens,
+        outputTokens,
+        cachedInputTokens: 0,
+        actualProviderCostUsd: null,
+      },
+      latencyMs,
+      rawMetadata: {
+        executionMode: 'mock',
+        notice:
+          'Simulated by GRIOT Mock Adapter because no live provider credentials were configured.',
+      },
+    };
+  }
+
+  private async *streamMockResponse(
+    request: ProviderGenerationRequest
+  ): AsyncGenerator<ProviderStreamChunk, void, unknown> {
+    const res = await this.generateMockResponse(request);
+    const words = res.content.split(' ');
+    let accumulated = '';
+    for (let i = 0; i < words.length; i++) {
+      if (request.abortSignal?.aborted) {
+        yield {
+          deltaText: '',
+          done: true,
+          finishReason: 'interrupted',
+          executionMode: 'mock',
+          usage: {
+            inputTokens: res.usage.inputTokens,
+            outputTokens: estimateTokenCount(accumulated),
+            cachedInputTokens: 0,
+          },
+        };
+        return;
+      }
+      const delta = (i === 0 ? '' : ' ') + words[i];
+      accumulated += delta;
+      yield {
+        deltaText: delta,
+        done: false,
+        executionMode: 'mock',
+      };
+    }
+    yield {
+      deltaText: '',
+      done: true,
+      finishReason: 'stop',
+      executionMode: 'mock',
+      usage: res.usage,
+    };
   }
 
   public recordSuccess(provider: ProviderName, latencyMs: number): void {
@@ -128,7 +321,6 @@ export class ProviderManager {
     state.totalRequests += 1;
     state.totalErrors += 1;
     state.lastError = errorMessage;
-    // Open circuit breaker for 30 seconds after 3 consecutive failures
     if (state.consecutiveFailures >= 3) {
       state.circuitOpenUntilMs = Date.now() + 30_000;
     }
@@ -155,11 +347,15 @@ export class ProviderManager {
     const now = Date.now();
     return providers.map((p) => {
       const state = this.healthStates.get(p)!;
-      const creds = this.resolveCredentials(p, orgId);
-      const configured = Boolean(creds.apiKey && creds.apiKey.trim());
+      const configured = this.hasLiveCredentials(p, orgId);
       return {
         provider: p,
         configured,
+        mode: configured
+          ? 'live'
+          : this.config.allowMockProvidersWhenUnconfigured
+            ? 'mock_fallback'
+            : 'unconfigured',
         circuitOpen: state.circuitOpenUntilMs > now,
         consecutiveFailures: state.consecutiveFailures,
         totalRequests: state.totalRequests,

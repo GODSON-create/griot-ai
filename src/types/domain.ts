@@ -1,5 +1,10 @@
 // ============================================================================
 // GRIOT AI — PHASE 1 CORE DOMAIN TYPES
+// Includes Locked Business Decisions:
+// 1. Avantage Group access: FREE ('avantage_free')
+// 2. Public access: FREEMIUM ('public_freemium')
+// 3. Enterprise deployment: SHARED infrastructure with strict tenant isolation ('enterprise_contract')
+// 4. Dual Branding: 'griot_standalone' ("GRIOT") & 'griot_powered_by_avantage' ("GRIOT powered by Avantage")
 // ============================================================================
 
 export type ProviderName =
@@ -8,6 +13,25 @@ export type ProviderName =
   | 'anthropic'
   | 'mistral'
   | 'open_weight';
+
+export type GriotProductModuleId =
+  | 'griot_chat'
+  | 'griot_learn'
+  | 'griot_business'
+  | 'griot_develop'
+  | 'griot_api'
+  | 'griot_agents';
+
+export type AccessModelType =
+  | 'avantage_free'
+  | 'public_freemium'
+  | 'enterprise_contract';
+
+export type BrandingMode =
+  | 'griot_standalone'
+  | 'griot_powered_by_avantage';
+
+export type ExecutionMode = 'live' | 'mock';
 
 export type ModalityType =
   | 'text'
@@ -95,7 +119,15 @@ export interface ModelRegistryEntry {
   deploymentType: DeploymentType;
 }
 
-export type OrgRole = 'owner' | 'admin' | 'developer' | 'member' | 'billing' | 'viewer' | 'support_auditor';
+export type OrgRole =
+  | 'platform_admin'
+  | 'owner'
+  | 'admin'
+  | 'developer'
+  | 'member'
+  | 'billing'
+  | 'viewer'
+  | 'support_auditor';
 
 export type PermissionScope =
   | 'chat:write'
@@ -114,6 +146,7 @@ export type PermissionScope =
   | 'org:admin'
   | 'apikeys:manage'
   | 'admin:observability'
+  | 'admin:platform'
   | 'admin:support_investigate';
 
 export interface OrganisationPreferences {
@@ -126,11 +159,29 @@ export interface OrganisationPreferences {
   defaultRoutingTier?: RoutingTier;
 }
 
+export interface UserPreferences {
+  preferredLanguage?: string;
+  responseTone?: 'concise' | 'detailed' | 'executive' | 'educational';
+  preferredProvider?: ProviderName;
+  preferredModelId?: string;
+  defaultProductModule?: GriotProductModuleId;
+  learningFocusTracks?: Array<
+    | 'entrepreneurship'
+    | 'financial_education'
+    | 'engineering'
+    | 'technology'
+    | 'personal_development'
+  >;
+}
+
 export interface Organisation {
   id: string;
   slug: string;
   name: string;
   isAvantageInternal: boolean;
+  accessModel: AccessModelType;
+  brandingMode: BrandingMode;
+  brandDisplayName: 'GRIOT' | 'GRIOT powered by Avantage';
   parentGroup: string | null;
   tier: RoutingTier;
   status: 'active' | 'suspended' | 'deleted';
@@ -143,6 +194,8 @@ export interface UserAccount {
   id: string;
   email: string;
   displayName: string;
+  isPlatformAdmin: boolean;
+  preferences: UserPreferences;
   status: 'active' | 'suspended' | 'deleted';
   personalOrgId: string | null;
   spendingLimitUsd: number | null;
@@ -177,6 +230,7 @@ export interface AuthContext {
   workspaceId: string | null;
   apiKeyId: string | null;
   role: OrgRole;
+  isPlatformAdmin: boolean;
   scopes: PermissionScope[];
   rateLimitRpm: number;
   ipAddress: string;
@@ -238,6 +292,7 @@ export interface ProviderGenerationRequest {
   responseFormat?: 'text' | 'json_object';
   tools?: ToolDefinition[];
   stream?: boolean;
+  timeoutMs?: number;
   abortSignal?: AbortSignal;
 }
 
@@ -256,6 +311,7 @@ export interface ProviderGenerationResponse {
   finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'interrupted' | 'error';
   usage: ProviderUsageMetrics;
   latencyMs: number;
+  executionMode?: ExecutionMode;
   toolCalls?: Array<{ id: string; name: string; argumentsJson: string }>;
   rawMetadata?: Record<string, unknown>;
 }
@@ -265,6 +321,7 @@ export interface ProviderStreamChunk {
   done: boolean;
   finishReason?: ProviderGenerationResponse['finishReason'];
   usage?: ProviderUsageMetrics;
+  executionMode?: ExecutionMode;
 }
 
 export interface CreditBreakdown {
@@ -284,6 +341,10 @@ export interface UsageLedgerRecord {
   apiKeyId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  featureModule: GriotProductModuleId;
+  endpointPath: string;
+  applicableAllocation: string;
+  executionMode: ExecutionMode;
   provider: ProviderName;
   modelId: string;
   taskType: TaskClassification;
@@ -295,7 +356,11 @@ export interface UsageLedgerRecord {
   actualProviderCostUsd: number | null;
   estimatedCostUsd: number;
   billableCostUsd: number;
-  costSource: 'actual_provider' | 'registry_pricing' | 'cached_zero';
+  costSource:
+    | 'actual_provider'
+    | 'registry_pricing'
+    | 'cached_zero'
+    | 'avantage_internal_free';
   creditsBreakdown: CreditBreakdown;
   cacheHit: boolean;
   fallbackUsed: boolean;

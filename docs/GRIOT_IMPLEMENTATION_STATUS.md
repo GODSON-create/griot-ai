@@ -30,9 +30,10 @@
 | **9** | **Usage & Cost Ledger** | **COMPLETED & VERIFIED** | `src/economics/usageEngine.ts`, `src/economics/costOptimizer.ts` (Server-side billing, actual cost priority, 5-tier credit waterfall, user/org/key spending limits, budget alerts, response cache, deduplication) |
 | **10** | **Security & Permissions Foundation** | **COMPLETED & VERIFIED** | `src/security/crypto.ts`, `auth.ts`, `promptGuard.ts`, `rateLimiter.ts`, `auditAndRetention.ts` |
 | **11** | **Versioned Internal API (`/api/v1`)** | **COMPLETED & VERIFIED** | `src/api/httpServer.ts` (REST + SSE endpoints with consistent JSON envelopes) |
-| **12** | **Administrative Monitoring** | **COMPLETED & VERIFIED** | `src/admin/observabilityService.ts` (Metrics, latency percentiles, default conversation redaction, audited break-glass support investigation) |
-| **13** | **Automated Tests** | **COMPLETED & VERIFIED** | `tests/phase1.unit.test.ts`, `tests/phase1.api.test.ts`, `tests/phase1.liveProviders.test.ts` (All unit and API integration tests pass; conditional live provider tests transparently skipped without live keys) |
-| **14** | **Architecture & Design Documentation** | **COMPLETED & VERIFIED** | `docs/GRIOT_ARCHITECTURE.md`, `docs/GRIOT_MODEL_REGISTRY.md`, `docs/GRIOT_API_DESIGN.md`, `docs/GRIOT_COST_ENGINE.md`, `docs/GRIOT_SECURITY.md`, `docs/GRIOT_IMPLEMENTATION_STATUS.md` |
+| **12** | **Administrative Monitoring** | **COMPLETED & VERIFIED** | `src/admin/observabilityService.ts` (Org-scoped observability for org admins, platform-wide metrics restricted strictly to `platform_admin`, default conversation redaction, audited break-glass support investigation) |
+| **13** | **Automated Tests** | **COMPLETED & VERIFIED** | `tests/phase1.unit.test.ts` (7/7 subtests pass), `tests/phase1.api.test.ts` (1/1 end-to-end API flow passes), `tests/phase1.liveProviders.test.ts` (4/4 conditional live provider tests transparently skipped without live keys) |
+| **14** | **Architecture & Design Documentation** | **COMPLETED & VERIFIED** | `README.md`, `GRIOT_ARCHITECTURE.md`, `GRIOT_MODEL_REGISTRY.md`, `GRIOT_API_DESIGN.md`, `GRIOT_COST_ENGINE.md`, `GRIOT_SECURITY.md`, `GRIOT_IMPLEMENTATION_STATUS.md` (present at root and in `docs/`) |
+| **15** | **Locked Business Decisions & Product Modules** | **COMPLETED & VERIFIED** | `src/products/productModules.ts`, `src/tenancy/tenantService.ts`, `src/economics/usageEngine.ts` (Avantage FREE access, Public FREEMIUM, Enterprise Shared Infrastructure with strict isolation, Dual Branding, and 6 modular product boundaries including GRIOT Learn's educational charter) |
 
 ---
 

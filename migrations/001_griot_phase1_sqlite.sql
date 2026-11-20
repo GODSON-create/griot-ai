@@ -1,7 +1,9 @@
 -- ============================================================================
 -- GRIOT AI — PHASE 1 DATABASE SCHEMA (SQLite / Local & Edge Engine)
--- Strict multi-tenant isolation, RBAC, persistent conversations, multimodal
--- private file vault, knowledge base RAG, and 5-tier usage economics ledger.
+-- Strict multi-tenant isolation, RBAC (including platform_admin), locked
+-- business models (Avantage Free, Public Freemium, Enterprise Shared),
+-- dual branding, persistent conversations, multimodal private file vault,
+-- knowledge base RAG, and usage economics ledger.
 -- ============================================================================
 
 PRAGMA foreign_keys = ON;
@@ -11,6 +13,8 @@ CREATE TABLE IF NOT EXISTS organisations (
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   is_avantage_internal INTEGER NOT NULL DEFAULT 0,
+  access_model TEXT NOT NULL DEFAULT 'public_freemium',
+  branding_mode TEXT NOT NULL DEFAULT 'griot_standalone',
   parent_group TEXT,
   tier TEXT NOT NULL DEFAULT 'standard',
   status TEXT NOT NULL DEFAULT 'active',
@@ -24,6 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   password_hash TEXT NOT NULL,
+  is_platform_admin INTEGER NOT NULL DEFAULT 0,
+  preferences_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'active',
   personal_org_id TEXT,
   spending_limit_usd REAL,
@@ -120,6 +126,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   org_id TEXT NOT NULL,
   workspace_id TEXT,
   user_id TEXT NOT NULL,
+  product_module TEXT NOT NULL DEFAULT 'griot_chat',
   title TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   summary_context TEXT NOT NULL DEFAULT '',
@@ -143,6 +150,7 @@ CREATE TABLE IF NOT EXISTS messages (
   attachments_json TEXT NOT NULL DEFAULT '[]',
   provider TEXT,
   model_id TEXT,
+  execution_mode TEXT NOT NULL DEFAULT 'live',
   status TEXT NOT NULL DEFAULT 'completed',
   input_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -186,9 +194,9 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   visibility TEXT NOT NULL DEFAULT 'organisation',
-  allowed_roles_json TEXT NOT NULL DEFAULT '["owner","admin","member","developer"]',
+  allowed_roles_json TEXT NOT NULL DEFAULT '["platform_admin","owner","admin","member","developer"]',
   allowed_user_ids_json TEXT NOT NULL DEFAULT '[]',
-  embedding_model TEXT NOT NULL DEFAULT 'local:deterministic-384',
+  embedding_model TEXT NOT NULL DEFAULT 'local:deterministic-128',
   chunk_size INTEGER NOT NULL DEFAULT 600,
   chunk_overlap INTEGER NOT NULL DEFAULT 100,
   created_at TEXT NOT NULL,
@@ -237,6 +245,10 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
   api_key_id TEXT,
   conversation_id TEXT,
   message_id TEXT,
+  feature_module TEXT NOT NULL DEFAULT 'griot_chat',
+  endpoint_path TEXT NOT NULL DEFAULT '/api/v1/chat/completions',
+  applicable_allocation TEXT NOT NULL DEFAULT 'public_freemium',
+  execution_mode TEXT NOT NULL DEFAULT 'live',
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
   task_type TEXT NOT NULL,

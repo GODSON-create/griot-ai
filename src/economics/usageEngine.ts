@@ -1,14 +1,21 @@
 // ============================================================================
-// GRIOT AI — SERVER-SIDE USAGE LEDGER & 5-TIER ECONOMICS ENGINE
-// Tracks every AI request, prioritizes actual provider costs over estimates,
-// enforces User / Org / API-Key spending limits, and deducts across the 5
-// separated credit buckets (Promotional, Free, Subscription, Enterprise, Prepaid).
+// GRIOT AI — SERVER-SIDE USAGE LEDGER & ECONOMICS ENGINE
+// Implements Locked Business Decisions:
+// - AVANTAGE GROUP ('avantage_free'): Free access through authorised org accounts
+//   (never blocked by credit exhaustion; tracks full provider cost & allocation).
+// - PUBLIC USERS ('public_freemium'): Freemium access with configurable free
+//   allowances and paid usage tiers.
+// - ENTERPRISE ('enterprise_contract'): Shared infrastructure with strict tenant
+//   isolation, organisation-specific usage accounting, budgets & allocations.
 // ============================================================================
 
 import type { GriotDatabase } from '../db/database.ts';
 import { generateId } from '../security/crypto.ts';
 import type {
+  AccessModelType,
   CreditBreakdown,
+  ExecutionMode,
+  GriotProductModuleId,
   ModelRegistryEntry,
   ProviderUsageMetrics,
   TaskClassification,
@@ -33,6 +40,8 @@ export class BudgetExceededError extends Error {
 export interface BillingAccountState {
   id: string;
   orgId: string;
+  accessModel: AccessModelType;
+  isAvantageFreeAccess: boolean;
   currency: string;
   freeCreditsUsd: number;
   subscriptionAllowanceUsd: number;
@@ -55,7 +64,12 @@ export class UsageAndEconomicsEngine {
 
   public getBillingAccount(orgId: string): BillingAccountState {
     const row = this.database.db
-      .prepare(`SELECT * FROM billing_accounts WHERE org_id = ?`)
+      .prepare(
+        `SELECT b.*, o.access_model, o.is_avantage_internal
+         FROM billing_accounts b
+         JOIN organisations o ON o.id = b.org_id
+         WHERE b.org_id = ?`
+      )
       .get(orgId) as Record<string, unknown> | undefined;
 
     if (!row) {
@@ -67,10 +81,17 @@ export class UsageAndEconomicsEngine {
     const prepaidCreditsUsd = Number(row.prepaid_credits_usd || 0);
     const enterpriseAllocationUsd = Number(row.enterprise_allocation_usd || 0);
     const promotionalCreditsUsd = Number(row.promotional_credits_usd || 0);
+    const accessModel = String(
+      row.access_model || (row.is_avantage_internal ? 'avantage_free' : 'public_freemium')
+    ) as AccessModelType;
+    const isAvantageFreeAccess =
+      Boolean(row.is_avantage_internal) || accessModel === 'avantage_free';
 
     return {
       id: String(row.id),
       orgId: String(row.org_id),
+      accessModel,
+      isAvantageFreeAccess,
       currency: String(row.currency),
       freeCreditsUsd,
       subscriptionAllowanceUsd,
@@ -139,10 +160,6 @@ export class UsageAndEconomicsEngine {
     return this.getBillingAccount(params.orgId);
   }
 
-  /**
-   * Calculates server-side cost in USD from token counts and model registry pricing.
-   * Never trusts client-side token or cost values.
-   */
   public calculateModelCost(params: {
     model: ModelRegistryEntry;
     usage: ProviderUsageMetrics;
@@ -188,7 +205,6 @@ export class UsageAndEconomicsEngine {
       ? Number(params.usage.actualProviderCostUsd!.toFixed(8))
       : null;
 
-    // Rule: Do not charge users based on inaccurate estimated costs where actual provider usage can be obtained
     const billableCostUsd =
       actualProviderCostUsd !== null ? actualProviderCostUsd : estimatedCostUsd;
     const costSource =
@@ -205,6 +221,9 @@ export class UsageAndEconomicsEngine {
   /**
    * Enforces User, Organisation, and API-Key spending limits and credit balance
    * BEFORE executing a model request to prevent runaway model costs.
+   * Note: Authorised Avantage Group organisations ('avantage_free') have FREE access
+   * and are never blocked by credit depletion, while still respecting explicit
+   * user/key/monthly governance ceilings if configured.
    */
   public assertWithinSpendingLimits(params: {
     orgId: string;
@@ -222,8 +241,11 @@ export class UsageAndEconomicsEngine {
       );
     }
 
-    // 1. Check total available credits across all 5 buckets
-    if (billing.totalAvailableCreditsUsd < projectedDelta) {
+    // 1. Check total available credits across all 5 buckets (exempt for Avantage Group FREE access)
+    if (
+      !billing.isAvantageFreeAccess &&
+      billing.totalAvailableCreditsUsd < projectedDelta
+    ) {
       throw new BudgetExceededError(
         `Insufficient credits: available balance ($${billing.totalAvailableCreditsUsd.toFixed(6)}) cannot cover projected request cost ($${projectedDelta.toFixed(6)}).`,
         'insufficient_credits'
@@ -248,7 +270,7 @@ export class UsageAndEconomicsEngine {
       }
     }
 
-    // 3. Check User spending limit (both global user limit and org-member limit)
+    // 3. Check User spending limit
     const userRow = this.database.db
       .prepare(
         `SELECT u.spending_limit_usd AS user_limit, m.spending_limit_usd AS member_limit
@@ -314,11 +336,6 @@ export class UsageAndEconomicsEngine {
     }
   }
 
-  /**
-   * Records a completed, streamed, cached, or interrupted AI request in the usage ledger
-   * and deducts billable usage across the 5 credit buckets in priority order:
-   * 1. Promotional -> 2. Free -> 3. Subscription -> 4. Enterprise -> 5. Prepaid.
-   */
   public recordUsage(params: {
     requestId: string;
     orgId: string;
@@ -327,6 +344,9 @@ export class UsageAndEconomicsEngine {
     apiKeyId?: string | null;
     conversationId?: string | null;
     messageId?: string | null;
+    featureModule?: GriotProductModuleId;
+    endpointPath?: string;
+    executionMode?: ExecutionMode;
     model: ModelRegistryEntry;
     taskType: TaskClassification;
     usage: ProviderUsageMetrics;
@@ -367,6 +387,25 @@ export class UsageAndEconomicsEngine {
         prepaidUsd,
       };
 
+      // Determine applicable subscription or allocation label
+      let applicableAllocation: string = billing.accessModel;
+      if (billing.isAvantageFreeAccess) {
+        applicableAllocation = 'avantage_internal_free';
+      } else if (enterpriseUsd > 0) {
+        applicableAllocation = 'enterprise_allocation';
+      } else if (subscriptionUsd > 0) {
+        applicableAllocation = 'subscription_allowance';
+      } else if (prepaidUsd > 0) {
+        applicableAllocation = 'prepaid_credits';
+      } else if (promotionalUsd > 0) {
+        applicableAllocation = 'promotional_credits';
+      } else if (freeUsd > 0) {
+        applicableAllocation = 'freemium_allowance';
+      }
+
+      const featureModule: GriotProductModuleId = params.featureModule ?? 'griot_chat';
+      const endpointPath = params.endpointPath ?? '/api/v1/chat/completions';
+      const executionMode: ExecutionMode = params.executionMode ?? 'live';
       const nowIso = new Date().toISOString();
 
       this.database.db
@@ -387,11 +426,12 @@ export class UsageAndEconomicsEngine {
         .prepare(
           `INSERT INTO usage_ledger (
             id, request_id, org_id, workspace_id, user_id, api_key_id,
-            conversation_id, message_id, provider, model_id, task_type,
+            conversation_id, message_id, feature_module, endpoint_path,
+            applicable_allocation, execution_mode, provider, model_id, task_type,
             input_tokens, output_tokens, cached_tokens, duration_ms, status,
             actual_provider_cost_usd, estimated_cost_usd, billable_cost_usd,
             cost_source, credits_breakdown_json, cache_hit, fallback_used, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -402,6 +442,10 @@ export class UsageAndEconomicsEngine {
           params.apiKeyId ?? null,
           params.conversationId ?? null,
           params.messageId ?? null,
+          featureModule,
+          endpointPath,
+          applicableAllocation,
+          executionMode,
           params.model.provider,
           params.model.id,
           params.taskType,
@@ -420,7 +464,6 @@ export class UsageAndEconomicsEngine {
           nowIso
         );
 
-      // Evaluate budget alert thresholds
       this.evaluateBudgetAlerts(params.orgId, billing);
 
       return {
@@ -432,6 +475,10 @@ export class UsageAndEconomicsEngine {
         apiKeyId: params.apiKeyId ?? null,
         conversationId: params.conversationId ?? null,
         messageId: params.messageId ?? null,
+        featureModule,
+        endpointPath,
+        applicableAllocation,
+        executionMode,
         provider: params.model.provider,
         modelId: params.model.id,
         taskType: params.taskType,
@@ -499,6 +546,7 @@ export class UsageAndEconomicsEngine {
     fallbacksUsed: number;
     byProvider: Record<string, { requests: number; tokens: number; billableCostUsd: number }>;
     byModel: Record<string, { requests: number; tokens: number; billableCostUsd: number }>;
+    byFeatureModule: Record<string, { requests: number; tokens: number; billableCostUsd: number }>;
     billingAccount: BillingAccountState;
     recentAlerts: Array<{
       id: string;
@@ -525,6 +573,10 @@ export class UsageAndEconomicsEngine {
     const byProvider: Record<string, { requests: number; tokens: number; billableCostUsd: number }> =
       {};
     const byModel: Record<string, { requests: number; tokens: number; billableCostUsd: number }> = {};
+    const byFeatureModule: Record<
+      string,
+      { requests: number; tokens: number; billableCostUsd: number }
+    > = {};
 
     for (const r of rows) {
       const inTok = Number(r.input_tokens || 0);
@@ -548,6 +600,7 @@ export class UsageAndEconomicsEngine {
 
       const provider = String(r.provider);
       const modelId = String(r.model_id);
+      const featureMod = String(r.feature_module || 'griot_chat');
 
       if (!byProvider[provider]) {
         byProvider[provider] = { requests: 0, tokens: 0, billableCostUsd: 0 };
@@ -565,6 +618,15 @@ export class UsageAndEconomicsEngine {
       byModel[modelId].tokens += inTok + outTok;
       byModel[modelId].billableCostUsd = Number(
         (byModel[modelId].billableCostUsd + billCost).toFixed(8)
+      );
+
+      if (!byFeatureModule[featureMod]) {
+        byFeatureModule[featureMod] = { requests: 0, tokens: 0, billableCostUsd: 0 };
+      }
+      byFeatureModule[featureMod].requests += 1;
+      byFeatureModule[featureMod].tokens += inTok + outTok;
+      byFeatureModule[featureMod].billableCostUsd = Number(
+        (byFeatureModule[featureMod].billableCostUsd + billCost).toFixed(8)
       );
     }
 
@@ -586,6 +648,7 @@ export class UsageAndEconomicsEngine {
       fallbacksUsed,
       byProvider,
       byModel,
+      byFeatureModule,
       billingAccount: this.getBillingAccount(orgId),
       recentAlerts: alerts.map((a) => ({
         id: String(a.id),

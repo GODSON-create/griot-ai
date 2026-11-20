@@ -1,10 +1,11 @@
 // ============================================================================
 // GRIOT AI — ADMINISTRATION, OBSERVABILITY & PRIVACY-PRESERVING SUPPORT
-// Provides operational metrics (provider health, model availability, request
-// volume, tokens, actual vs estimated costs, error rates, latency p50/p95/p99,
-// org usage, API activity, budget consumption).
-// Redacts private user conversation content from administrators by default,
-// requiring audited break-glass support authorization for security investigations.
+// Provides:
+// 1. Organisation-level observability (restricted to each org's admins).
+// 2. Platform-wide administration metrics (restricted strictly to authorised
+//    platform administrators — org admins cannot access platform-wide data).
+// 3. Audited break-glass support investigation (private conversations are
+//    redacted by default).
 // ============================================================================
 
 import type { GriotDatabase } from '../db/database.ts';
@@ -32,8 +33,13 @@ export class ObservabilityAndAdminService {
     this.audit = params.audit;
   }
 
+  /**
+   * Organisation-scoped observability report.
+   * Organisation administrators only see their own organisation's information.
+   */
   public getSystemObservabilityReport(auth: AuthContext): {
     generatedAt: string;
+    scope: 'organisation';
     orgId: string;
     providerStatus: ReturnType<ProviderManager['getProviderStatuses']>;
     modelAvailability: Array<{
@@ -180,7 +186,6 @@ export class ObservabilityAndAdminService {
       )
       .all(auth.orgId) as Array<Record<string, unknown>>;
 
-    // Note: Private user conversations are NEVER exposed to administrators by default!
     const convRows = this.database.db
       .prepare(
         `SELECT c.id, c.user_id, c.title, c.status, c.updated_at,
@@ -196,6 +201,7 @@ export class ObservabilityAndAdminService {
 
     return {
       generatedAt: new Date().toISOString(),
+      scope: 'organisation',
       orgId: auth.orgId,
       providerStatus: this.providerManager.getProviderStatuses(auth.orgId),
       modelAvailability: this.registry.listModels().map((m) => ({
@@ -257,10 +263,210 @@ export class ObservabilityAndAdminService {
   }
 
   /**
-   * Restricted break-glass access for authorised support and security investigations.
-   * Requires the `admin:support_investigate` permission scope, a valid ticket ID,
-   * and an explicit investigation reason, and records an immutable audit log entry.
+   * Platform-wide administration metrics.
+   * Strictly restricted to explicitly authorised platform administrators (`platform_admin`).
+   * Organisation owners/admins without `platform_admin` are rejected with HTTP 403.
    */
+  public getPlatformAdministrationReport(auth: AuthContext): {
+    generatedAt: string;
+    scope: 'platform';
+    totalRequests: number;
+    activeOrganisations: number;
+    activeUsers: number;
+    failedRequests: number;
+    tokenConsumption: {
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens: number;
+      totalTokens: number;
+    };
+    estimatedProviderCostsUsd: number;
+    billableRevenueUsd: number;
+    latency: {
+      avgMs: number;
+      p50Ms: number;
+      p95Ms: number;
+      p99Ms: number;
+    };
+    providerUsage: Record<string, { requests: number; tokens: number; estimatedCostUsd: number }>;
+    modelUsage: Record<string, { requests: number; tokens: number; estimatedCostUsd: number }>;
+    apiConsumption: {
+      totalApiKeysActive: number;
+      apiKeyTriggeredRequests: number;
+    };
+    quotaUtilisationByAccessModel: Record<
+      string,
+      { organisationsCount: number; requestsCount: number; estimatedCostUsd: number }
+    >;
+  } {
+    if (!auth.isPlatformAdmin && !auth.scopes.includes('admin:platform')) {
+      this.audit.record({
+        orgId: auth.orgId,
+        actorUserId: auth.userId,
+        action: 'admin.platform_report_denied',
+        resourceType: 'platform_observability',
+        outcome: 'denied',
+      });
+      throw new AuthError(
+        'Access denied: platform administration is restricted to explicitly authorised platform administrators.',
+        403,
+        'FORBIDDEN_PLATFORM_ADMIN'
+      );
+    }
+
+    const activeOrgsRow = this.database.db
+      .prepare(`SELECT COUNT(*) AS cnt FROM organisations WHERE status = 'active'`)
+      .get() as { cnt: number };
+    const activeUsersRow = this.database.db
+      .prepare(`SELECT COUNT(*) AS cnt FROM users WHERE status = 'active'`)
+      .get() as { cnt: number };
+    const activeKeysRow = this.database.db
+      .prepare(`SELECT COUNT(*) AS cnt FROM api_credentials WHERE status = 'active'`)
+      .get() as { cnt: number };
+
+    const allLedgerRows = this.database.db
+      .prepare(
+        `SELECT ul.*, o.access_model
+         FROM usage_ledger ul
+         JOIN organisations o ON o.id = ul.org_id`
+      )
+      .all() as Array<Record<string, unknown>>;
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cachedTokens = 0;
+    let failedRequests = 0;
+    let estimatedProviderCostsUsd = 0;
+    let billableRevenueUsd = 0;
+    let apiKeyTriggeredRequests = 0;
+    const durations: number[] = [];
+
+    const providerUsage: Record<
+      string,
+      { requests: number; tokens: number; estimatedCostUsd: number }
+    > = {};
+    const modelUsage: Record<
+      string,
+      { requests: number; tokens: number; estimatedCostUsd: number }
+    > = {};
+    const quotaUtilisationByAccessModel: Record<
+      string,
+      { organisationsCount: number; requestsCount: number; estimatedCostUsd: number }
+    > = {};
+
+    const orgsByAccessModel = this.database.db
+      .prepare(
+        `SELECT access_model, COUNT(*) AS cnt
+         FROM organisations
+         WHERE status = 'active'
+         GROUP BY access_model`
+      )
+      .all() as Array<{ access_model: string; cnt: number }>;
+
+    for (const row of orgsByAccessModel) {
+      quotaUtilisationByAccessModel[row.access_model] = {
+        organisationsCount: Number(row.cnt || 0),
+        requestsCount: 0,
+        estimatedCostUsd: 0,
+      };
+    }
+
+    for (const r of allLedgerRows) {
+      const inTok = Number(r.input_tokens || 0);
+      const outTok = Number(r.output_tokens || 0);
+      const cachedTok = Number(r.cached_tokens || 0);
+      const estCost = Number(r.estimated_cost_usd || 0);
+      const billCost = Number(r.billable_cost_usd || 0);
+
+      inputTokens += inTok;
+      outputTokens += outTok;
+      cachedTokens += cachedTok;
+      estimatedProviderCostsUsd += estCost;
+      billableRevenueUsd += billCost;
+      if (String(r.status) === 'failed') failedRequests++;
+      if (r.api_key_id) apiKeyTriggeredRequests++;
+      durations.push(Number(r.duration_ms || 0));
+
+      const provider = String(r.provider);
+      const modelId = String(r.model_id);
+      const accessModel = String(r.access_model || 'public_freemium');
+
+      if (!providerUsage[provider]) {
+        providerUsage[provider] = { requests: 0, tokens: 0, estimatedCostUsd: 0 };
+      }
+      providerUsage[provider].requests++;
+      providerUsage[provider].tokens += inTok + outTok;
+      providerUsage[provider].estimatedCostUsd = Number(
+        (providerUsage[provider].estimatedCostUsd + estCost).toFixed(8)
+      );
+
+      if (!modelUsage[modelId]) {
+        modelUsage[modelId] = { requests: 0, tokens: 0, estimatedCostUsd: 0 };
+      }
+      modelUsage[modelId].requests++;
+      modelUsage[modelId].tokens += inTok + outTok;
+      modelUsage[modelId].estimatedCostUsd = Number(
+        (modelUsage[modelId].estimatedCostUsd + estCost).toFixed(8)
+      );
+
+      if (!quotaUtilisationByAccessModel[accessModel]) {
+        quotaUtilisationByAccessModel[accessModel] = {
+          organisationsCount: 0,
+          requestsCount: 0,
+          estimatedCostUsd: 0,
+        };
+      }
+      quotaUtilisationByAccessModel[accessModel].requestsCount++;
+      quotaUtilisationByAccessModel[accessModel].estimatedCostUsd = Number(
+        (quotaUtilisationByAccessModel[accessModel].estimatedCostUsd + estCost).toFixed(8)
+      );
+    }
+
+    durations.sort((a, b) => a - b);
+    const percentile = (p: number): number => {
+      if (durations.length === 0) return 0;
+      const idx = Math.min(
+        durations.length - 1,
+        Math.floor((p / 100) * durations.length)
+      );
+      return durations[idx];
+    };
+    const avgMs =
+      durations.length > 0
+        ? Math.round(durations.reduce((s, v) => s + v, 0) / durations.length)
+        : 0;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      scope: 'platform',
+      totalRequests: allLedgerRows.length,
+      activeOrganisations: Number(activeOrgsRow.cnt || 0),
+      activeUsers: Number(activeUsersRow.cnt || 0),
+      failedRequests,
+      tokenConsumption: {
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+        totalTokens: inputTokens + outputTokens,
+      },
+      estimatedProviderCostsUsd: Number(estimatedProviderCostsUsd.toFixed(8)),
+      billableRevenueUsd: Number(billableRevenueUsd.toFixed(8)),
+      latency: {
+        avgMs,
+        p50Ms: percentile(50),
+        p95Ms: percentile(95),
+        p99Ms: percentile(99),
+      },
+      providerUsage,
+      modelUsage,
+      apiConsumption: {
+        totalApiKeysActive: Number(activeKeysRow.cnt || 0),
+        apiKeyTriggeredRequests,
+      },
+      quotaUtilisationByAccessModel,
+    };
+  }
+
   public investigateConversationForSupport(params: {
     auth: AuthContext;
     conversationId: string;

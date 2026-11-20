@@ -919,4 +919,132 @@ describe('GRIOT AI — Phase 1 Core Infrastructure Unit & Subsystem Suite', () =
 
     core.close();
   });
+
+  it('7. Locked Business Decisions (Avantage FREE, Public FREEMIUM, Enterprise Shared, Dual Branding), Modular Products (GRIOT Learn), Mock Mode Distinction & Platform Admin Isolation', async () => {
+    // Initialize GriotCore with NO provider API keys to verify built-in Development Mock Adapter
+    const core = new GriotCore({
+      config: {
+        env: 'test',
+        sqlitePath: ':memory:',
+        privateStorageDir: path.join(tmpStorageDir, 'locked-decisions'),
+        allowMockProvidersWhenUnconfigured: true,
+        providers: {
+          openai: { apiKey: null, baseUrl: 'https://api.openai.com/v1' },
+          gemini: {
+            apiKey: null,
+            baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          },
+          anthropic: { apiKey: null, baseUrl: 'https://api.anthropic.com/v1' },
+          mistral: { apiKey: null, baseUrl: 'https://api.mistral.ai/v1' },
+          open_weight: { apiKey: null, baseUrl: 'http://127.0.0.1:8000/v1' },
+        },
+      },
+    });
+
+    // 7a. Public user gets FREEMIUM access ('public_freemium') and 'GRIOT' standalone branding
+    const publicUser = core.tenantService.createUserAccount({
+      email: 'builder@public.africa',
+      displayName: 'Public Builder',
+      password: 'PasswordPub123!',
+    });
+    assert.equal(publicUser.personalOrg?.accessModel, 'public_freemium');
+    assert.equal(publicUser.personalOrg?.brandingMode, 'griot_standalone');
+    assert.equal(publicUser.personalOrg?.brandDisplayName, 'GRIOT');
+
+    // 7b. Avantage Group organisation gets FREE access ('avantage_free') and 'GRIOT powered by Avantage' branding
+    // Even with $0.00 in all credit buckets, Avantage Group organisations have FREE uninterrupted access!
+    const avantageOrg = core.tenantService.createOrganisation({
+      name: 'Avantage Ventures Africa',
+      slug: 'avantage-ventures',
+      isAvantageInternal: true,
+      initialBilling: {
+        freeCreditsUsd: 0,
+        subscriptionAllowanceUsd: 0,
+        prepaidCreditsUsd: 0,
+        enterpriseAllocationUsd: 0,
+        promotionalCreditsUsd: 0,
+      },
+    });
+    assert.equal(avantageOrg.accessModel, 'avantage_free');
+    assert.equal(avantageOrg.brandingMode, 'griot_powered_by_avantage');
+    assert.equal(avantageOrg.brandDisplayName, 'GRIOT powered by Avantage');
+
+    // One identity participating in multiple authorised organisations without mixing data
+    core.tenantService.addMember({
+      orgId: avantageOrg.id,
+      userId: publicUser.user.id,
+      role: 'member',
+    });
+    const orgList = core.tenantService.listUserOrganisations(publicUser.user.id);
+    assert.equal(orgList.length, 2);
+
+    const avantageJwt = core.tenantService.issueJwtForMember(
+      publicUser.user.id,
+      avantageOrg.id
+    );
+    const avantageAuth = core.authService.authenticateJwt(avantageJwt);
+
+    // 7c. Execute GRIOT Learn request on Avantage Free account using Mock Adapter
+    const learnRes = await core.executeChat({
+      auth: avantageAuth,
+      productModule: 'griot_learn',
+      prompt: 'Teach me unit economics and financial education for an African SaaS startup.',
+    });
+    assert.equal(learnRes.productModule, 'griot_learn');
+    assert.equal(learnRes.executionMode, 'mock');
+    assert.equal(learnRes.branding.platformBrand, 'GRIOT powered by Avantage');
+    assert.equal(learnRes.branding.productBrand, 'GRIOT Learn — powered by Avantage');
+    assert.equal(learnRes.usageLedger.applicableAllocation, 'avantage_internal_free');
+    assert.equal(learnRes.usageLedger.executionMode, 'mock');
+    assert.match(learnRes.content, /GRIOT MOCK ADAPTER/);
+
+    // 7d. Exhaust public user's freemium credits ($0.00) -> Public Freemium is blocked by BudgetExceededError
+    core.usageEngine.updateBillingAccount({
+      orgId: publicUser.personalOrg!.id,
+      freeCreditsUsd: 0,
+      subscriptionAllowanceUsd: 0,
+      prepaidCreditsUsd: 0,
+      enterpriseAllocationUsd: 0,
+      promotionalCreditsUsd: 0,
+    });
+    const publicAuth = core.authService.authenticateJwt(publicUser.accessToken!);
+    await assert.rejects(
+      () =>
+        core.executeChat({
+          auth: publicAuth,
+          prompt: 'Should fail when freemium allowance is 0',
+        }),
+      (err: unknown) =>
+        err instanceof BudgetExceededError && err.scope === 'insufficient_credits'
+    );
+
+    // 7e. Platform Administration vs Organisation Administration Isolation
+    // Public org owner (not platform_admin) is strictly blocked from platform-wide metrics
+    assert.throws(
+      () => core.adminService.getPlatformAdministrationReport(publicAuth),
+      (err: unknown) =>
+        err instanceof AuthError && err.code === 'FORBIDDEN_PLATFORM_ADMIN'
+    );
+
+    // Create an explicitly authorised Platform Administrator
+    const platformAdmin = core.tenantService.createUserAccount({
+      email: 'root-admin@avantage.group',
+      displayName: 'Platform Root Admin',
+      password: 'PlatformAdminPass123!',
+      isPlatformAdmin: true,
+    });
+    const platformAdminAuth = core.authService.authenticateJwt(
+      platformAdmin.accessToken!
+    );
+    const platformReport =
+      core.adminService.getPlatformAdministrationReport(platformAdminAuth);
+    assert.equal(platformReport.scope, 'platform');
+    assert.ok(platformReport.activeOrganisations >= 3);
+    assert.ok(platformReport.activeUsers >= 2);
+    assert.ok(platformReport.totalRequests >= 1);
+    assert.ok(platformReport.quotaUtilisationByAccessModel['avantage_free']);
+    assert.ok(platformReport.quotaUtilisationByAccessModel['public_freemium']);
+
+    core.close();
+  });
 });

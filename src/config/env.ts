@@ -23,6 +23,9 @@ export interface GriotConfig {
   maxRequestBytes: number;
   enableResponseCache: boolean;
   cacheTtlSeconds: number;
+  allowMockProvidersWhenUnconfigured: boolean;
+  requestTimeoutMs: number;
+  maxRetriesPerProvider: number;
   providers: Record<
     ProviderName,
     {
@@ -107,6 +110,12 @@ export function loadGriotConfig(overrides: Partial<GriotConfig> = {}): GriotConf
     maxRequestBytes: Number(process.env.GRIOT_MAX_REQUEST_BYTES || 10 * 1024 * 1024),
     enableResponseCache: (process.env.GRIOT_ENABLE_RESPONSE_CACHE ?? 'true') !== 'false',
     cacheTtlSeconds: Number(process.env.GRIOT_CACHE_TTL_SECONDS || 3600),
+    allowMockProvidersWhenUnconfigured:
+      process.env.GRIOT_ALLOW_MOCK_PROVIDERS !== undefined
+        ? process.env.GRIOT_ALLOW_MOCK_PROVIDERS === 'true'
+        : env !== 'production',
+    requestTimeoutMs: Number(process.env.GRIOT_REQUEST_TIMEOUT_MS || 30000),
+    maxRetriesPerProvider: Number(process.env.GRIOT_MAX_RETRIES_PER_PROVIDER ?? 1),
     providers: {
       openai: {
         apiKey: process.env.OPENAI_API_KEY || null,
@@ -143,15 +152,25 @@ export function loadGriotConfig(overrides: Partial<GriotConfig> = {}): GriotConf
 }
 
 /**
- * Safe credential summary that reports presence and masked key hints without ever exposing secrets.
+ * Safe credential summary that reports presence, live vs mock status, and masked key hints without ever exposing secrets.
  */
 export function inspectConfiguredCredentials(config: GriotConfig): Record<
   ProviderName,
-  { configured: boolean; baseUrl: string; keyHint: string | null }
+  {
+    configured: boolean;
+    mode: 'live' | 'mock_fallback' | 'unconfigured';
+    baseUrl: string;
+    keyHint: string | null;
+  }
 > {
   const result = {} as Record<
     ProviderName,
-    { configured: boolean; baseUrl: string; keyHint: string | null }
+    {
+      configured: boolean;
+      mode: 'live' | 'mock_fallback' | 'unconfigured';
+      baseUrl: string;
+      keyHint: string | null;
+    }
   >;
   const providers: ProviderName[] = ['openai', 'gemini', 'anthropic', 'mistral', 'open_weight'];
   for (const p of providers) {
@@ -159,6 +178,11 @@ export function inspectConfiguredCredentials(config: GriotConfig): Record<
     const hasKey = Boolean(entry.apiKey && entry.apiKey.trim().length > 0);
     result[p] = {
       configured: hasKey,
+      mode: hasKey
+        ? 'live'
+        : config.allowMockProvidersWhenUnconfigured
+          ? 'mock_fallback'
+          : 'unconfigured',
       baseUrl: entry.baseUrl,
       keyHint: hasKey && entry.apiKey ? `${entry.apiKey.slice(0, 3)}***${entry.apiKey.slice(-2)}` : null,
     };

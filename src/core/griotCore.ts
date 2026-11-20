@@ -1,10 +1,9 @@
 // ============================================================================
 // GRIOT AI — CENTRAL INTELLIGENCE & MODEL ORCHESTRATION ENGINE (GRIOT CORE)
-// Coordinates Authentication, Authorisation, Rate Limiting, Prompt Guard,
-// Persistent Conversations, Bounded Context Summarisation, Multimodal File
-// Verification, Permission-Aware Knowledge Retrieval, Intelligent 9-Factor
-// Routing, Safe Non-Downgrading Fallbacks, Streaming, Cost Caching, and the
-// 5-Tier Usage Economics Ledger.
+// Unified request pipeline:
+// Authentication -> Tenant resolution -> Permission checks -> Request
+// classification -> Model routing -> Provider execution (live or clearly
+// marked mock fallback) -> Response processing -> Usage accounting -> Logging.
 // ============================================================================
 
 import { ObservabilityAndAdminService } from '../admin/observabilityService.ts';
@@ -21,6 +20,7 @@ import {
   type RetrievedChunkResult,
 } from '../knowledge/knowledgeEngine.ts';
 import { MultimodalEngine } from '../multimodal/multimodalEngine.ts';
+import { getProductModuleBoundary } from '../products/productModules.ts';
 import {
   estimateTokenCount,
   ProviderError,
@@ -42,7 +42,10 @@ import { TenantService } from '../tenancy/tenantService.ts';
 import type {
   AttachmentReference,
   AuthContext,
+  BrandingMode,
   ChatMessageInput,
+  ExecutionMode,
+  GriotProductModuleId,
   ModelRegistryEntry,
   ProviderGenerationResponse,
   RoutingDecision,
@@ -53,6 +56,8 @@ import type {
 
 export interface GriotChatRequest {
   auth: AuthContext;
+  productModule?: GriotProductModuleId;
+  endpointPath?: string;
   prompt?: string;
   messages?: ChatMessageInput[];
   systemPrompt?: string;
@@ -69,11 +74,19 @@ export interface GriotChatRequest {
   maxContextTokens?: number;
   responseFormat?: 'text' | 'json_object';
   tools?: ToolDefinition[];
+  timeoutMs?: number;
   abortSignal?: AbortSignal;
 }
 
 export interface GriotChatResult {
   requestId: string;
+  productModule: GriotProductModuleId;
+  branding: {
+    platformBrand: 'GRIOT' | 'GRIOT powered by Avantage';
+    productBrand: string;
+    brandingMode: BrandingMode;
+  };
+  executionMode: ExecutionMode;
   conversationId: string | null;
   userMessageId: string | null;
   assistantMessageId: string | null;
@@ -98,6 +111,8 @@ export interface GriotChatResult {
 export interface GriotStreamEvent {
   type: 'routing' | 'delta' | 'completed' | 'interrupted' | 'error';
   requestId: string;
+  productModule?: GriotProductModuleId;
+  executionMode?: ExecutionMode;
   conversationId: string | null;
   deltaText?: string;
   modelId?: string;
@@ -183,10 +198,8 @@ export class GriotCore {
     attachments: AttachmentReference[];
     rawMessages: ChatMessageInput[];
   } {
-    // 1. Permission Scope Check
     this.authService.requireScope(request.auth, 'chat:write');
 
-    // 2. Rate Limit & Abuse Protection
     const rl = this.rateLimiter.checkAndConsume({
       userId: request.auth.userId,
       orgId: request.auth.orgId,
@@ -212,7 +225,6 @@ export class GriotCore {
       );
     }
 
-    // 3. Resolve & Verify Private File Attachments
     const attachments =
       request.attachmentFileIds && request.attachmentFileIds.length > 0
         ? this.multimodal.resolveAttachmentsForOrchestration(
@@ -221,7 +233,6 @@ export class GriotCore {
           )
         : [];
 
-    // 4. Construct Message Array
     const rawMessages: ChatMessageInput[] = [];
     if (request.messages && request.messages.length > 0) {
       for (let i = 0; i < request.messages.length; i++) {
@@ -241,7 +252,6 @@ export class GriotCore {
       throw new Error('Request must provide either a non-empty prompt or messages array.');
     }
 
-    // 5. Prompt Injection & Payload Validation
     const validation = validateMessagesPayload(rawMessages);
     if (!validation.valid) {
       this.audit.record({
@@ -271,6 +281,22 @@ export class GriotCore {
       throw new AuthError('Organisation is not active.', 403, 'ORG_INACTIVE');
     }
 
+    // Resolve User Preferences & Product Module Boundary (GRIOT Chat / Learn / Business / Develop / API / Agents)
+    const userPrefs = this.tenantService.getUserPreferences(request.auth.userId);
+    const productModuleId: GriotProductModuleId =
+      request.productModule || userPrefs.defaultProductModule || 'griot_chat';
+    const productBoundary = getProductModuleBoundary(productModuleId);
+    const endpointPath = request.endpointPath || '/api/v1/chat/completions';
+
+    const branding = {
+      platformBrand: org.brandDisplayName,
+      productBrand:
+        org.brandingMode === 'griot_powered_by_avantage'
+          ? productBoundary.ecosystemBrand
+          : productBoundary.standaloneBrand,
+      brandingMode: org.brandingMode,
+    };
+
     // 1. Knowledge Retrieval (Permission-Aware RAG)
     let retrievedChunks: RetrievedChunkResult[] = [];
     const lastUserMessage = [...rawMessages].reverse().find((m) => m.role === 'user');
@@ -291,7 +317,9 @@ export class GriotCore {
 
     const ragSystemContext =
       this.knowledgeEngine.formatRetrievedContextForPrompt(retrievedChunks);
-    const combinedSystemPrompt = [request.systemPrompt, ragSystemContext]
+    const baseSystemInstruction =
+      request.systemPrompt ?? productBoundary.defaultSystemInstruction;
+    const combinedSystemPrompt = [baseSystemInstruction, ragSystemContext]
       .filter(Boolean)
       .join('\n\n');
 
@@ -329,7 +357,6 @@ export class GriotCore {
         systemPrompt: combinedSystemPrompt || undefined,
       });
       messagesForModel = bounded.contextMessages;
-      // Ensure full attachment data (including inlineBase64) is present on the final user message
       if (attachments.length > 0 && messagesForModel.length > 0) {
         const lastIdx = messagesForModel.length - 1;
         if (messagesForModel[lastIdx].role === 'user') {
@@ -346,18 +373,25 @@ export class GriotCore {
       messagesForModel.push(...rawMessages);
     }
 
-    // 3. Intelligent Model Routing
+    // 3. Intelligent Model Routing (merges product module hints, user preferences, and request hints)
+    const mergedHints: RoutingHints = {
+      ...productBoundary.defaultRoutingHints,
+      preferredProvider:
+        request.routingHints?.preferredProvider ?? userPrefs.preferredProvider,
+      requestedModelId:
+        request.routingHints?.requestedModelId ?? userPrefs.preferredModelId,
+      ...request.routingHints,
+      requireJsonOutput:
+        request.responseFormat === 'json_object' ||
+        request.routingHints?.requireJsonOutput,
+      stream: false,
+    };
+
     const routingDecision: RoutingDecision = this.routingEngine.selectModel({
       orgId: org.id,
       messages: messagesForModel,
       tools: request.tools,
-      hints: {
-        ...request.routingHints,
-        requireJsonOutput:
-          request.responseFormat === 'json_object' ||
-          request.routingHints?.requireJsonOutput,
-        stream: false,
-      },
+      hints: mergedHints,
       orgPreferences: org.preferences,
       maxOutputTokens: request.maxOutputTokens,
     });
@@ -399,6 +433,7 @@ export class GriotCore {
     const cachedResponse = this.costOptimizer.getCachedResponse(cacheKey, allowOrgCache);
     if (cachedResponse) {
       let assistantMessageId: string | null = null;
+      const execMode: ExecutionMode = cachedResponse.executionMode || 'live';
       if (activeConversationId) {
         const saved = this.conversationEngine.appendMessage({
           conversationId: activeConversationId,
@@ -413,7 +448,7 @@ export class GriotCore {
           cachedTokens: cachedResponse.usage.inputTokens,
           costUsd: 0,
           latencyMs: 0,
-          metadata: { cacheHit: true },
+          metadata: { cacheHit: true, executionMode: execMode },
         });
         assistantMessageId = saved.id;
       }
@@ -426,6 +461,9 @@ export class GriotCore {
         apiKeyId: request.auth.apiKeyId,
         conversationId: activeConversationId,
         messageId: assistantMessageId,
+        featureModule: productModuleId,
+        endpointPath,
+        executionMode: execMode,
         model: routingDecision.selectedModel,
         taskType: routingDecision.taskClassification,
         usage: cachedResponse.usage,
@@ -437,6 +475,9 @@ export class GriotCore {
 
       return {
         requestId,
+        productModule: productModuleId,
+        branding,
+        executionMode: execMode,
         conversationId: activeConversationId,
         userMessageId,
         assistantMessageId,
@@ -471,21 +512,14 @@ export class GriotCore {
 
     for (let idx = 0; idx < candidates.length; idx++) {
       const candidate = candidates[idx];
-      // Verify fallback model still satisfies all multimodal attachments (never downgrade!)
       this.multimodal.assertModelSupportsAttachments(candidate, attachments);
       attemptedModels.push(candidate.id);
-
-      const adapter = this.providerManager.getAdapter(candidate.provider);
-      const credentials = this.providerManager.resolveCredentials(
-        candidate.provider,
-        org.id
-      );
 
       try {
         const execResult = await this.costOptimizer.executeWithDeduplication(
           idx === 0 ? cacheKey : null,
           () =>
-            adapter.generate(
+            this.providerManager.executeGenerate(
               {
                 requestId,
                 model: candidate,
@@ -495,19 +529,18 @@ export class GriotCore {
                 responseFormat: request.responseFormat,
                 tools: request.tools,
                 stream: false,
+                timeoutMs: request.timeoutMs,
                 abortSignal: request.abortSignal,
               },
-              credentials
+              org.id
             )
         );
         finalResponse = execResult.response;
         deduplicated = execResult.deduplicated;
         usedModel = candidate;
-        this.providerManager.recordSuccess(candidate.provider, finalResponse.latencyMs);
         break;
       } catch (err) {
         lastError = err as Error;
-        this.providerManager.recordFailure(candidate.provider, lastError.message);
         const isRetryable =
           err instanceof ProviderError ? err.retryable || err.category === 'auth_error' : true;
         if (!isRetryable || idx === candidates.length - 1) {
@@ -524,6 +557,9 @@ export class GriotCore {
         userId: request.auth.userId,
         apiKeyId: request.auth.apiKeyId,
         conversationId: activeConversationId,
+        featureModule: productModuleId,
+        endpointPath,
+        executionMode: 'live',
         model: usedModel,
         taskType: routingDecision.taskClassification,
         usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
@@ -562,8 +598,8 @@ export class GriotCore {
 
     const cleanContent = sanitizeModelOutput(finalResponse.content);
     finalResponse.content = cleanContent;
+    const executionMode: ExecutionMode = finalResponse.executionMode || 'live';
 
-    // 9. Store in Response Cache if eligible
     if (attemptedModels.length === 1) {
       this.costOptimizer.setCachedResponse(cacheKey, finalResponse, allowOrgCache);
     }
@@ -592,6 +628,8 @@ export class GriotCore {
         costUsd: costPreview.billableCostUsd,
         latencyMs: finalResponse.latencyMs,
         metadata: {
+          productModule: productModuleId,
+          executionMode,
           taskClassification: routingDecision.taskClassification,
           fallbackUsed,
           attemptedModels,
@@ -601,7 +639,7 @@ export class GriotCore {
       assistantMessageId = savedMsg.id;
     }
 
-    // 11. Record Server-Side Usage & Deduct 5-Tier Credits
+    // 11. Record Server-Side Usage & Deduct Credits
     const ledger = this.usageEngine.recordUsage({
       requestId,
       orgId: org.id,
@@ -610,6 +648,9 @@ export class GriotCore {
       apiKeyId: request.auth.apiKeyId,
       conversationId: activeConversationId,
       messageId: assistantMessageId,
+      featureModule: productModuleId,
+      endpointPath,
+      executionMode,
       model: usedModel,
       taskType: routingDecision.taskClassification,
       usage: finalResponse.usage,
@@ -621,6 +662,9 @@ export class GriotCore {
 
     return {
       requestId,
+      productModule: productModuleId,
+      branding,
+      executionMode,
       conversationId: activeConversationId,
       userMessageId,
       assistantMessageId,
@@ -643,10 +687,6 @@ export class GriotCore {
     };
   }
 
-  /**
-   * Streams an AI response with full support for provider failover prior to first token
-   * and graceful persistence of interrupted responses if aborted mid-stream.
-   */
   public async *streamChat(
     request: GriotChatRequest
   ): AsyncGenerator<GriotStreamEvent, void, unknown> {
@@ -656,6 +696,12 @@ export class GriotCore {
     if (!org || org.status !== 'active') {
       throw new AuthError('Organisation is not active.', 403, 'ORG_INACTIVE');
     }
+
+    const userPrefs = this.tenantService.getUserPreferences(request.auth.userId);
+    const productModuleId: GriotProductModuleId =
+      request.productModule || userPrefs.defaultProductModule || 'griot_chat';
+    const productBoundary = getProductModuleBoundary(productModuleId);
+    const endpointPath = request.endpointPath || '/api/v1/chat/completions';
 
     let activeConversationId: string | null = request.conversationId ?? null;
     const lastUserMessage = [...rawMessages].reverse().find((m) => m.role === 'user');
@@ -670,6 +716,8 @@ export class GriotCore {
       activeConversationId = conv.id;
     }
 
+    const systemInstruction =
+      request.systemPrompt ?? productBoundary.defaultSystemInstruction;
     let messagesForModel: ChatMessageInput[] = [];
     if (activeConversationId) {
       if (lastUserMessage) {
@@ -685,12 +733,12 @@ export class GriotCore {
         conversationId: activeConversationId,
         auth: request.auth,
         maxContextTokens: request.maxContextTokens ?? 4000,
-        systemPrompt: request.systemPrompt,
+        systemPrompt: systemInstruction || undefined,
       });
       messagesForModel = bounded.contextMessages;
     } else {
-      if (request.systemPrompt) {
-        messagesForModel.push({ role: 'system', content: request.systemPrompt });
+      if (systemInstruction) {
+        messagesForModel.push({ role: 'system', content: systemInstruction });
       }
       messagesForModel.push(...rawMessages);
     }
@@ -699,7 +747,11 @@ export class GriotCore {
       orgId: org.id,
       messages: messagesForModel,
       tools: request.tools,
-      hints: { ...request.routingHints, stream: true },
+      hints: {
+        ...productBoundary.defaultRoutingHints,
+        ...request.routingHints,
+        stream: true,
+      },
       orgPreferences: org.preferences,
       maxOutputTokens: request.maxOutputTokens,
     });
@@ -730,6 +782,7 @@ export class GriotCore {
     let wasInterrupted = false;
     let streamSucceeded = false;
     let fallbackUsed = false;
+    let executionMode: ExecutionMode = 'live';
 
     for (let idx = 0; idx < candidates.length; idx++) {
       const candidate = candidates[idx];
@@ -737,23 +790,18 @@ export class GriotCore {
       usedModel = candidate;
       fallbackUsed = idx > 0;
 
-      const adapter = this.providerManager.getAdapter(candidate.provider);
-      const credentials = this.providerManager.resolveCredentials(
-        candidate.provider,
-        org.id
-      );
-
       try {
         yield {
           type: 'routing',
           requestId,
+          productModule: productModuleId,
           conversationId: activeConversationId,
           modelId: candidate.id,
           provider: candidate.provider,
           fallbackUsed,
         };
 
-        for await (const chunk of adapter.stream(
+        for await (const chunk of this.providerManager.executeStream(
           {
             requestId,
             model: candidate,
@@ -763,8 +811,11 @@ export class GriotCore {
             stream: true,
             abortSignal: request.abortSignal,
           },
-          credentials
+          org.id
         )) {
+          if (chunk.executionMode) {
+            executionMode = chunk.executionMode;
+          }
           if (request.abortSignal?.aborted || chunk.finishReason === 'interrupted') {
             wasInterrupted = true;
           }
@@ -773,6 +824,8 @@ export class GriotCore {
             yield {
               type: 'delta',
               requestId,
+              productModule: productModuleId,
+              executionMode,
               conversationId: activeConversationId,
               deltaText: chunk.deltaText,
               modelId: candidate.id,
@@ -796,7 +849,6 @@ export class GriotCore {
         break;
       } catch (err) {
         this.providerManager.recordFailure(candidate.provider, (err as Error).message);
-        // Only fail over to next provider if no partial tokens were emitted yet
         if (accumulatedContent.length > 0) {
           wasInterrupted = true;
           streamSucceeded = true;
@@ -839,6 +891,7 @@ export class GriotCore {
         costUsd: costPreview.billableCostUsd,
         latencyMs: Date.now() - startMs,
         interruptedAtChar: wasInterrupted ? cleanContent.length : null,
+        metadata: { productModule: productModuleId, executionMode },
       });
     }
 
@@ -850,6 +903,9 @@ export class GriotCore {
       apiKeyId: request.auth.apiKeyId,
       conversationId: activeConversationId,
       messageId: savedAssistantMsg?.id ?? null,
+      featureModule: productModuleId,
+      endpointPath,
+      executionMode,
       model: usedModel,
       taskType: routingDecision.taskClassification,
       usage: finalUsage,
@@ -862,6 +918,8 @@ export class GriotCore {
     yield {
       type: wasInterrupted ? 'interrupted' : 'completed',
       requestId,
+      productModule: productModuleId,
+      executionMode,
       conversationId: activeConversationId,
       modelId: usedModel.id,
       provider: usedModel.provider,

@@ -10,16 +10,21 @@ import { inspectConfiguredCredentials } from '../config/env.ts';
 import type { GriotCore } from '../core/griotCore.ts';
 import { BudgetExceededError } from '../economics/usageEngine.ts';
 import type { KnowledgeSourceType } from '../knowledge/knowledgeEngine.ts';
+import { listProductModules } from '../products/productModules.ts';
 import { ProviderError } from '../providers/adapter.ts';
 import { RoutingConstraintError } from '../routing/routingEngine.ts';
 import { AuthError } from '../security/auth.ts';
 import { generateId } from '../security/crypto.ts';
 import type {
+  AccessModelType,
   AuthContext,
+  BrandingMode,
+  GriotProductModuleId,
   ModalityType,
   ModelAvailability,
   ModelCapability,
   ProviderName,
+  UserPreferences,
 } from '../types/domain.ts';
 
 export interface ApiEnvelope<T = unknown> {
@@ -203,7 +208,7 @@ export class GriotHttpServer {
     const parsedUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = parsedUrl.pathname.replace(/\/+$/, '') || '/';
 
-    // 1. Health Endpoint
+    // 1. Health & Product Boundaries Endpoints (Public)
     if (method === 'GET' && pathname === '/api/v1/health') {
       const models = this.core.registry.listModels();
       const credentialsSummary = inspectConfiguredCredentials(this.core.config);
@@ -212,9 +217,25 @@ export class GriotHttpServer {
         service: 'griot-ai-core',
         phase: 1,
         environment: this.core.config.env,
+        branding: {
+          standalone: 'GRIOT',
+          ecosystem: 'GRIOT powered by Avantage',
+        },
+        accessModels: {
+          avantageGroup: 'FREE',
+          public: 'FREEMIUM',
+          enterprise: 'SHARED_INFRASTRUCTURE_STRICT_ISOLATION',
+        },
         registeredModelsCount: models.length,
         availableModelsCount: models.filter((m) => m.availability === 'available').length,
         providersConfigured: credentialsSummary,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/products') {
+      this.sendJson(res, 200, requestId, {
+        products: listProductModules(),
       });
       return;
     }
@@ -267,7 +288,27 @@ export class GriotHttpServer {
 
     const auth = this.requireAuth(req);
 
-    // 3. Organisation & Multi-Tenancy Endpoints
+    // 3. Identity & Multi-Organisation Membership / User Preferences Endpoints
+    if (method === 'GET' && pathname === '/api/v1/users/me/organisations') {
+      const memberships = this.core.tenantService.listUserOrganisations(auth.userId);
+      this.sendJson(res, 200, requestId, { memberships });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/users/me/preferences') {
+      const preferences = this.core.tenantService.getUserPreferences(auth.userId);
+      this.sendJson(res, 200, requestId, { preferences });
+      return;
+    }
+
+    if (method === 'PATCH' && pathname === '/api/v1/users/me/preferences') {
+      const body = (await this.readJsonBody(req)) as UserPreferences;
+      const preferences = this.core.tenantService.updateUserPreferences(auth.userId, body);
+      this.sendJson(res, 200, requestId, { preferences });
+      return;
+    }
+
+    // 4. Organisation & Multi-Tenancy Endpoints
     if (method === 'POST' && pathname === '/api/v1/organisations') {
       const body = await this.readJsonBody(req);
       const name = String(body.name || '').trim();
@@ -279,6 +320,8 @@ export class GriotHttpServer {
         name,
         slug,
         isAvantageInternal: Boolean(body.isAvantageInternal),
+        accessModel: body.accessModel as AccessModelType | undefined,
+        brandingMode: body.brandingMode as BrandingMode | undefined,
         parentGroup: typeof body.parentGroup === 'string' ? body.parentGroup : undefined,
         dataRetentionDays:
           typeof body.dataRetentionDays === 'number' ? body.dataRetentionDays : undefined,
@@ -380,7 +423,7 @@ export class GriotHttpServer {
       return;
     }
 
-    // 4. Model Registry & Routing Selection Endpoints
+    // 5. Model Registry & Routing Selection Endpoints
     if (method === 'GET' && pathname === '/api/v1/models') {
       this.core.authService.requireScope(auth, 'models:read');
       const provider = parsedUrl.searchParams.get('provider') as ProviderName | null;
@@ -439,7 +482,7 @@ export class GriotHttpServer {
       return;
     }
 
-    // 5. Conversation & Message Endpoints
+    // 6. Conversation & Message Endpoints
     if (method === 'POST' && pathname === '/api/v1/conversations') {
       this.core.authService.requireScope(auth, 'conversations:write');
       const body = await this.readJsonBody(req);
@@ -515,19 +558,23 @@ export class GriotHttpServer {
         await this.handleChatExecution(res, requestId, auth, {
           ...body,
           conversationId: convId,
+          endpointPath: pathname,
         });
         return;
       }
     }
 
-    // 6. Unified Chat Completions Endpoint (Sync + SSE Streaming)
+    // 7. Unified Chat Completions Endpoint (Sync + SSE Streaming)
     if (method === 'POST' && pathname === '/api/v1/chat/completions') {
       const body = await this.readJsonBody(req);
-      await this.handleChatExecution(res, requestId, auth, body);
+      await this.handleChatExecution(res, requestId, auth, {
+        ...body,
+        endpointPath: pathname,
+      });
       return;
     }
 
-    // 7. Multimodal Private File Endpoints
+    // 8. Multimodal Private File Endpoints
     if (method === 'POST' && pathname === '/api/v1/files') {
       this.core.authService.requireScope(auth, 'files:write');
       const body = await this.readJsonBody(req);
@@ -596,7 +643,7 @@ export class GriotHttpServer {
       return;
     }
 
-    // 8. Knowledge Base & Permission-Aware Retrieval Endpoints
+    // 9. Knowledge Base & Permission-Aware Retrieval Endpoints
     if (method === 'POST' && pathname === '/api/v1/knowledge-bases') {
       this.core.authService.requireScope(auth, 'knowledge:write');
       const body = await this.readJsonBody(req);
@@ -663,7 +710,7 @@ export class GriotHttpServer {
       return;
     }
 
-    // 9. Usage & Economics Endpoints
+    // 10. Usage & Economics Endpoints
     if (method === 'GET' && pathname === '/api/v1/usage') {
       this.core.authService.requireScope(auth, 'usage:read');
       const summary = this.core.usageEngine.getOrgUsageSummary(auth.orgId);
@@ -701,9 +748,15 @@ export class GriotHttpServer {
       return;
     }
 
-    // 10. Administration, Observability & Audited Support Investigation
+    // 11. Administration, Platform Observability & Audited Support Investigation
     if (method === 'GET' && pathname === '/api/v1/admin/observability') {
       const report = this.core.adminService.getSystemObservabilityReport(auth);
+      this.sendJson(res, 200, requestId, report);
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/admin/platform') {
+      const report = this.core.adminService.getPlatformAdministrationReport(auth);
       this.sendJson(res, 200, requestId, report);
       return;
     }
@@ -720,7 +773,7 @@ export class GriotHttpServer {
       return;
     }
 
-    // 11. Account Deletion Workflow
+    // 12. Account Deletion Workflow
     const userDeleteMatch = pathname.match(/^\/api\/v1\/users\/([^/]+)$/);
     if (method === 'DELETE' && userDeleteMatch) {
       const targetUserId = userDeleteMatch[1];
@@ -748,6 +801,14 @@ export class GriotHttpServer {
     const stream = Boolean(body.stream);
     const chatReq = {
       auth,
+      productModule:
+        typeof body.productModule === 'string'
+          ? (body.productModule as GriotProductModuleId)
+          : undefined,
+      endpointPath:
+        typeof body.endpointPath === 'string'
+          ? body.endpointPath
+          : '/api/v1/chat/completions',
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
       messages: Array.isArray(body.messages) ? body.messages : undefined,
       systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : undefined,
@@ -787,7 +848,6 @@ export class GriotHttpServer {
       return;
     }
 
-    // Server-Sent Events (SSE) streaming response
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',

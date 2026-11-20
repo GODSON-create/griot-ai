@@ -1,6 +1,10 @@
 // ============================================================================
-// GRIOT AI — MULTI-TENANT FOUNDATION SERVICE
-// Manages Users, Organisations, Workspaces, Memberships, API Keys, and Vault.
+// GRIOT AI — MULTI-TENANT IDENTITY & ORGANISATION SERVICE
+// Implements Locked Business Decisions:
+// 1. Avantage Group access: FREE ('avantage_free')
+// 2. Public access: FREEMIUM ('public_freemium')
+// 3. Enterprise deployment: SHARED infrastructure with strict tenant isolation ('enterprise_contract')
+// 4. Dual Branding: 'griot_standalone' ("GRIOT") & 'griot_powered_by_avantage' ("GRIOT powered by Avantage")
 // ============================================================================
 
 import type { GriotDatabase } from '../db/database.ts';
@@ -16,6 +20,8 @@ import {
   verifyPassword,
 } from '../security/crypto.ts';
 import type {
+  AccessModelType,
+  BrandingMode,
   OrgRole,
   Organisation,
   OrganisationMember,
@@ -24,6 +30,7 @@ import type {
   ProviderName,
   RoutingTier,
   UserAccount,
+  UserPreferences,
   Workspace,
 } from '../types/domain.ts';
 
@@ -49,6 +56,8 @@ export class TenantService {
     name: string;
     slug: string;
     isAvantageInternal?: boolean;
+    accessModel?: AccessModelType;
+    brandingMode?: BrandingMode;
     parentGroup?: string | null;
     tier?: RoutingTier;
     preferences?: OrganisationPreferences;
@@ -66,10 +75,31 @@ export class TenantService {
     const id = generateId('org');
     const createdAt = new Date().toISOString();
     const isInternal = params.isAvantageInternal ? 1 : 0;
+
+    // Locked Business Decision 1, 2, 3:
+    // Avantage Group -> 'avantage_free'
+    // Enterprise tier -> 'enterprise_contract'
+    // Public/Standard -> 'public_freemium'
+    const accessModel: AccessModelType =
+      params.accessModel ??
+      (params.isAvantageInternal
+        ? 'avantage_free'
+        : params.tier === 'enterprise'
+          ? 'enterprise_contract'
+          : 'public_freemium');
+
+    // Locked Business Decision 4: Dual Branding
+    const brandingMode: BrandingMode =
+      params.brandingMode ??
+      (params.isAvantageInternal ? 'griot_powered_by_avantage' : 'griot_standalone');
+
     const parentGroup =
       params.parentGroup ?? (params.isAvantageInternal ? 'Avantage Group' : null);
     const tier: RoutingTier =
-      params.tier ?? (params.isAvantageInternal ? 'enterprise' : 'standard');
+      params.tier ??
+      (params.isAvantageInternal || accessModel === 'enterprise_contract'
+        ? 'enterprise'
+        : 'standard');
     const preferences: OrganisationPreferences = params.preferences ?? {};
     const retentionDays = params.dataRetentionDays ?? 365;
 
@@ -77,15 +107,17 @@ export class TenantService {
       this.database.db
         .prepare(
           `INSERT INTO organisations (
-            id, slug, name, is_avantage_internal, parent_group,
-            tier, status, preferences_json, data_retention_days, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+            id, slug, name, is_avantage_internal, access_model, branding_mode,
+            parent_group, tier, status, preferences_json, data_retention_days, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
         )
         .run(
           id,
           params.slug,
           params.name,
           isInternal,
+          accessModel,
+          brandingMode,
           parentGroup,
           tier,
           JSON.stringify(preferences),
@@ -109,14 +141,14 @@ export class TenantService {
           b.freeCreditsUsd ?? 5.0,
           b.subscriptionAllowanceUsd ?? 0.0,
           b.prepaidCreditsUsd ?? 0.0,
-          b.enterpriseAllocationUsd ?? (params.isAvantageInternal ? 500.0 : 0.0),
+          b.enterpriseAllocationUsd ??
+            (accessModel === 'enterprise_contract' || params.isAvantageInternal ? 500.0 : 0.0),
           b.promotionalCreditsUsd ?? 0.0,
           b.monthlyBudgetLimitUsd ?? null,
           b.alertThresholdPercent ?? 80.0,
           createdAt
         );
 
-      // Create default workspace
       const wsId = generateId('ws');
       this.database.db
         .prepare(
@@ -134,6 +166,8 @@ export class TenantService {
         details: {
           slug: params.slug,
           isAvantageInternal: Boolean(params.isAvantageInternal),
+          accessModel,
+          brandingMode,
           parentGroup,
           tier,
         },
@@ -144,6 +178,12 @@ export class TenantService {
         slug: params.slug,
         name: params.name,
         isAvantageInternal: Boolean(params.isAvantageInternal),
+        accessModel,
+        brandingMode,
+        brandDisplayName:
+          brandingMode === 'griot_powered_by_avantage'
+            ? 'GRIOT powered by Avantage'
+            : 'GRIOT',
         parentGroup,
         tier,
         status: 'active',
@@ -160,6 +200,29 @@ export class TenantService {
       .get(orgId) as Record<string, unknown> | undefined;
     if (!row) return null;
     return this.mapOrganisationRow(row);
+  }
+
+  /**
+   * Lists all organisations an identity is authorised to participate in without mixing tenant data.
+   */
+  public listUserOrganisations(userId: string): Array<{
+    organisation: Organisation;
+    role: OrgRole;
+  }> {
+    const rows = this.database.db
+      .prepare(
+        `SELECT o.*, m.role AS member_role
+         FROM organisation_members m
+         JOIN organisations o ON o.id = m.org_id
+         WHERE m.user_id = ? AND o.status = 'active'
+         ORDER BY o.created_at ASC`
+      )
+      .all(userId) as Array<Record<string, unknown>>;
+
+    return rows.map((r) => ({
+      organisation: this.mapOrganisationRow(r),
+      role: String(r.member_role) as OrgRole,
+    }));
   }
 
   public updateOrganisationPreferences(
@@ -197,11 +260,15 @@ export class TenantService {
     displayName: string;
     password: string;
     createPersonalOrg?: boolean;
+    isPlatformAdmin?: boolean;
+    preferences?: UserPreferences;
     spendingLimitUsd?: number | null;
   }): { user: UserAccount; personalOrg: Organisation | null; accessToken: string | null } {
     const userId = generateId('usr');
     const createdAt = new Date().toISOString();
     const passwordHash = hashPassword(params.password);
+    const isPlatformAdmin = Boolean(params.isPlatformAdmin);
+    const userPrefs: UserPreferences = params.preferences ?? {};
 
     return this.database.transaction(() => {
       let personalOrg: Organisation | null = null;
@@ -217,6 +284,8 @@ export class TenantService {
           name: `${params.displayName}'s Personal Organisation`,
           slug: cleanSlug,
           isAvantageInternal: false,
+          accessModel: 'public_freemium',
+          brandingMode: 'griot_standalone',
           tier: 'standard',
         });
       }
@@ -224,15 +293,18 @@ export class TenantService {
       this.database.db
         .prepare(
           `INSERT INTO users (
-            id, email, display_name, password_hash, status,
-            personal_org_id, spending_limit_usd, retention_days, created_at
-          ) VALUES (?, ?, ?, ?, 'active', ?, ?, 365, ?)`
+            id, email, display_name, password_hash, is_platform_admin,
+            preferences_json, status, personal_org_id, spending_limit_usd,
+            retention_days, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, 365, ?)`
         )
         .run(
           userId,
           params.email.toLowerCase().trim(),
           params.displayName,
           passwordHash,
+          isPlatformAdmin ? 1 : 0,
+          JSON.stringify(userPrefs),
           personalOrg ? personalOrg.id : null,
           params.spendingLimitUsd ?? null,
           createdAt
@@ -243,7 +315,7 @@ export class TenantService {
         this.addMember({
           orgId: personalOrg.id,
           userId,
-          role: 'owner',
+          role: isPlatformAdmin ? 'platform_admin' : 'owner',
         });
         accessToken = this.issueJwtForMember(userId, personalOrg.id);
       }
@@ -253,6 +325,8 @@ export class TenantService {
           id: userId,
           email: params.email.toLowerCase().trim(),
           displayName: params.displayName,
+          isPlatformAdmin,
+          preferences: userPrefs,
           status: 'active',
           personalOrgId: personalOrg ? personalOrg.id : null,
           spendingLimitUsd: params.spendingLimitUsd ?? null,
@@ -264,6 +338,26 @@ export class TenantService {
         accessToken,
       };
     });
+  }
+
+  public getUserPreferences(userId: string): UserPreferences {
+    const row = this.database.db
+      .prepare(`SELECT preferences_json FROM users WHERE id = ?`)
+      .get(userId) as { preferences_json: string } | undefined;
+    if (!row) return {};
+    return JSON.parse(String(row.preferences_json || '{}')) as UserPreferences;
+  }
+
+  public updateUserPreferences(
+    userId: string,
+    preferences: UserPreferences
+  ): UserPreferences {
+    const existing = this.getUserPreferences(userId);
+    const merged: UserPreferences = { ...existing, ...preferences };
+    this.database.db
+      .prepare(`UPDATE users SET preferences_json = ? WHERE id = ?`)
+      .run(JSON.stringify(merged), userId);
+    return merged;
   }
 
   public authenticateUserLogin(params: {
@@ -295,6 +389,8 @@ export class TenantService {
         id: userId,
         email: String(row.email),
         displayName: String(row.display_name),
+        isPlatformAdmin: Boolean(row.is_platform_admin),
+        preferences: JSON.parse(String(row.preferences_json || '{}')),
         status: 'active',
         personalOrgId: row.personal_org_id ? String(row.personal_org_id) : null,
         spendingLimitUsd:
@@ -316,7 +412,12 @@ export class TenantService {
     workspaceId?: string | null
   ): string {
     const member = this.database.db
-      .prepare(`SELECT role, permissions_json FROM organisation_members WHERE org_id = ? AND user_id = ?`)
+      .prepare(
+        `SELECT m.role, m.permissions_json, u.is_platform_admin
+         FROM organisation_members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.org_id = ? AND m.user_id = ?`
+      )
       .get(orgId, userId) as Record<string, unknown> | undefined;
 
     if (!member) {
@@ -324,8 +425,12 @@ export class TenantService {
     }
 
     const role = String(member.role) as OrgRole;
+    const isPlatformAdmin = Boolean(member.is_platform_admin) || role === 'platform_admin';
     const customPerms = JSON.parse(String(member.permissions_json || '[]')) as PermissionScope[];
-    const scopes = Array.from(new Set([...(ROLE_DEFAULT_SCOPES[role] || []), ...customPerms]));
+    const baseScopes = isPlatformAdmin
+      ? ROLE_DEFAULT_SCOPES.platform_admin
+      : ROLE_DEFAULT_SCOPES[role] || [];
+    const scopes = Array.from(new Set([...baseScopes, ...customPerms]));
 
     return signJwtToken(
       {
@@ -559,10 +664,6 @@ export class TenantService {
     }));
   }
 
-  /**
-   * Stores an encrypted provider API credential in the organisation's vault using AES-256-GCM.
-   * Never stores or logs the plaintext provider key.
-   */
   public setOrgProviderCredential(params: {
     orgId: string;
     actorUserId: string;
@@ -633,11 +734,18 @@ export class TenantService {
   }
 
   private mapOrganisationRow(row: Record<string, unknown>): Organisation {
+    const brandingMode = (String(row.branding_mode || 'griot_standalone') as BrandingMode);
     return {
       id: String(row.id),
       slug: String(row.slug),
       name: String(row.name),
       isAvantageInternal: Boolean(row.is_avantage_internal),
+      accessModel: String(row.access_model || 'public_freemium') as AccessModelType,
+      brandingMode,
+      brandDisplayName:
+        brandingMode === 'griot_powered_by_avantage'
+          ? 'GRIOT powered by Avantage'
+          : 'GRIOT',
       parentGroup: row.parent_group ? String(row.parent_group) : null,
       tier: String(row.tier) as RoutingTier,
       status: String(row.status) as Organisation['status'],

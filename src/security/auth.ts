@@ -1,5 +1,7 @@
 // ============================================================================
-// GRIOT AI — AUTHENTICATION & ORGANISATION-LEVEL AUTHORISATION ENGINE
+// GRIOT AI — AUTHENTICATION & SERVER-SIDE AUTHORISATION ENGINE
+// Supports Platform Administrator, Organisation Owner, Organisation Admin,
+// Developer, Member, Billing, Viewer, and Support Auditor roles.
 // ============================================================================
 
 import type { GriotDatabase } from '../db/database.ts';
@@ -7,6 +9,25 @@ import type { AuthContext, OrgRole, PermissionScope } from '../types/domain.ts';
 import { hashApiKey, verifyJwtToken } from './crypto.ts';
 
 export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
+  platform_admin: [
+    'chat:write',
+    'conversations:read',
+    'conversations:write',
+    'conversations:delete',
+    'models:read',
+    'models:admin',
+    'files:read',
+    'files:write',
+    'knowledge:read',
+    'knowledge:write',
+    'usage:read',
+    'billing:write',
+    'org:read',
+    'org:admin',
+    'apikeys:manage',
+    'admin:observability',
+    'admin:platform',
+  ],
   owner: [
     'chat:write',
     'conversations:read',
@@ -165,7 +186,7 @@ export class AuthService {
     const keyHash = hashApiKey(rawKey);
     const row = this.database.db
       .prepare(
-        `SELECT ak.*, o.status AS org_status, u.status AS user_status
+        `SELECT ak.*, o.status AS org_status, u.status AS user_status, u.is_platform_admin
          FROM api_credentials ak
          JOIN organisations o ON o.id = ak.org_id
          JOIN users u ON u.id = ak.created_by_user_id
@@ -228,6 +249,7 @@ export class AuthService {
       workspaceId: requestedWorkspaceId || boundWorkspaceId,
       apiKeyId: String(row.id),
       role: 'developer',
+      isPlatformAdmin: Boolean(row.is_platform_admin),
       scopes,
       rateLimitRpm: Number(row.rate_limit_rpm || this.defaultRpm),
       ipAddress,
@@ -254,7 +276,7 @@ export class AuthService {
     const targetOrgId = requestedOrgId || claims.orgId;
     const membership = this.database.db
       .prepare(
-        `SELECT m.role, m.permissions_json, o.status AS org_status, u.status AS user_status
+        `SELECT m.role, m.permissions_json, o.status AS org_status, u.status AS user_status, u.is_platform_admin
          FROM organisation_members m
          JOIN organisations o ON o.id = m.org_id
          JOIN users u ON u.id = m.user_id
@@ -279,12 +301,16 @@ export class AuthService {
     }
 
     const role = String(membership.role) as OrgRole;
+    const isPlatformAdmin =
+      Boolean(membership.is_platform_admin) || role === 'platform_admin';
     const customPerms = JSON.parse(
       String(membership.permissions_json || '[]')
     ) as PermissionScope[];
-    const scopes = Array.from(new Set([...(ROLE_DEFAULT_SCOPES[role] || []), ...customPerms]));
+    const baseScopes = isPlatformAdmin
+      ? ROLE_DEFAULT_SCOPES.platform_admin
+      : ROLE_DEFAULT_SCOPES[role] || [];
+    const scopes = Array.from(new Set([...baseScopes, ...customPerms]));
 
-    // If workspace header specified, ensure workspace belongs to targetOrgId
     const workspaceId = requestedWorkspaceId || claims.workspaceId || null;
     if (workspaceId) {
       const ws = this.database.db
@@ -306,6 +332,7 @@ export class AuthService {
       workspaceId,
       apiKeyId: null,
       role,
+      isPlatformAdmin,
       scopes,
       rateLimitRpm: this.defaultRpm,
       ipAddress,
@@ -318,6 +345,16 @@ export class AuthService {
         `Insufficient permissions: missing required scope '${requiredScope}'.`,
         403,
         'FORBIDDEN_SCOPE'
+      );
+    }
+  }
+
+  public requirePlatformAdmin(ctx: AuthContext): void {
+    if (!ctx.isPlatformAdmin && !ctx.scopes.includes('admin:platform')) {
+      throw new AuthError(
+        'Access denied: platform administration is restricted to explicitly authorised platform administrators.',
+        403,
+        'FORBIDDEN_PLATFORM_ADMIN'
       );
     }
   }
