@@ -6,8 +6,14 @@
 
 import http from 'node:http';
 import { URL } from 'node:url';
+import type {
+  BudgetConstraint,
+  ProjectCategory,
+  TechnicalExperienceLevel,
+} from '../builder/toolRegistry.ts';
 import { inspectConfiguredCredentials } from '../config/env.ts';
 import type { GriotCore } from '../core/griotCore.ts';
+import { LocalQueueLimitError } from '../economics/concurrencyLimiter.ts';
 import { BudgetExceededError } from '../economics/usageEngine.ts';
 import type { KnowledgeSourceType } from '../knowledge/knowledgeEngine.ts';
 import { listProductModules } from '../products/productModules.ts';
@@ -26,6 +32,7 @@ import type {
   ProviderName,
   UserPreferences,
 } from '../types/domain.ts';
+import { renderGriotWebInterfaceHtml } from '../ui/griotAppHtml.ts';
 
 export interface ApiEnvelope<T = unknown> {
   success: boolean;
@@ -118,6 +125,9 @@ export class GriotHttpServer {
     if (err instanceof AuthError) {
       statusCode = err.statusCode;
       code = err.code;
+    } else if (err instanceof LocalQueueLimitError) {
+      statusCode = err.statusCode;
+      code = err.code;
     } else if (err instanceof BudgetExceededError) {
       statusCode = err.statusCode;
       code = err.code;
@@ -208,7 +218,27 @@ export class GriotHttpServer {
     const parsedUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = parsedUrl.pathname.replace(/\/+$/, '') || '/';
 
-    // 1. Health & Product Boundaries Endpoints (Public)
+    // 0. Responsive Web Product Interface (ASK GRIOT & BUILD WITH GRIOT)
+    if (method === 'GET' && (pathname === '/' || pathname === '/app')) {
+      const html = renderGriotWebInterfaceHtml();
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
+    // 1. Health, Local Runtime & Product Boundaries Endpoints (Public)
+    if (method === 'GET' && pathname === '/api/v1/local-runtime') {
+      const ollamaStatus = await this.core.providerManager.inspectLocalOllamaStatus();
+      const queueMetrics = this.core.providerManager.localConcurrency.getQueueMetrics();
+      const internalRates = this.core.providerManager.localConcurrency.getInternalRates();
+      this.sendJson(res, 200, requestId, {
+        ollama: ollamaStatus,
+        concurrencyAndQueue: queueMetrics,
+        internalCostAllocationRates: internalRates,
+      });
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/v1/health') {
       const models = this.core.registry.listModels();
       const credentialsSummary = inspectConfiguredCredentials(this.core.config);
@@ -773,7 +803,156 @@ export class GriotHttpServer {
       return;
     }
 
-    // 12. Account Deletion Workflow
+    // 12. Guided Builder Endpoints ("BUILD WITH GRIOT")
+    if (method === 'GET' && pathname === '/api/v1/builder/tools') {
+      this.sendJson(res, 200, requestId, {
+        tools: this.core.guidedBuildEngine.toolRegistry.listTools(),
+      });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/builder/tools/recommend') {
+      const body = await this.readJsonBody(req);
+      const recommendation = this.core.guidedBuildEngine.toolRegistry.recommendTool({
+        projectCategory: (String(body.projectCategory || 'web_application') as ProjectCategory),
+        technicalExperience: (String(
+          body.technicalExperience || 'complete_beginner'
+        ) as TechnicalExperienceLevel),
+        budgetConstraint: (String(body.budgetConstraint || 'free_only') as BudgetConstraint),
+        preferredToolId:
+          typeof body.preferredToolId === 'string' ? body.preferredToolId : undefined,
+      });
+      this.sendJson(res, 200, requestId, recommendation);
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/builder/projects') {
+      const body = await this.readJsonBody(req);
+      const project = await this.core.guidedBuildEngine.startProject({
+        auth,
+        ideaDescription: String(body.ideaDescription || ''),
+        title: typeof body.title === 'string' ? body.title : undefined,
+        userObjective:
+          typeof body.userObjective === 'string' ? body.userObjective : undefined,
+        technicalExperience: body.technicalExperience as
+          | TechnicalExperienceLevel
+          | undefined,
+        budgetConstraint: body.budgetConstraint as BudgetConstraint | undefined,
+        preferredToolId:
+          typeof body.preferredToolId === 'string' ? body.preferredToolId : undefined,
+        detailLevel:
+          body.detailLevel === 'technical' ? 'technical' : 'beginner',
+        targetAudience:
+          typeof body.targetAudience === 'string' ? body.targetAudience : undefined,
+        mustHaveFeatures: Array.isArray(body.mustHaveFeatures)
+          ? body.mustHaveFeatures.map(String)
+          : undefined,
+      });
+      this.sendJson(res, 201, requestId, project);
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/builder/projects') {
+      const projects = this.core.guidedBuildEngine.listProjects(auth);
+      this.sendJson(res, 200, requestId, { projects });
+      return;
+    }
+
+    const builderProjMatch = pathname.match(/^\/api\/v1\/builder\/projects\/([^/]+)$/);
+    if (method === 'GET' && builderProjMatch) {
+      const project = this.core.guidedBuildEngine.getProject(
+        builderProjMatch[1],
+        auth
+      );
+      this.sendJson(res, 200, requestId, project);
+      return;
+    }
+
+    const builderReqMatch = pathname.match(
+      /^\/api\/v1\/builder\/projects\/([^/]+)\/requirements$/
+    );
+    if (method === 'PATCH' && builderReqMatch) {
+      const body = await this.readJsonBody(req);
+      const project = await this.core.guidedBuildEngine.refineRequirementsAndPlan({
+        projectId: builderReqMatch[1],
+        auth,
+        clarifyingAnswers:
+          typeof body.clarifyingAnswers === 'object' && body.clarifyingAnswers !== null
+            ? (body.clarifyingAnswers as Record<string, string>)
+            : undefined,
+        mustHaveFeatures: Array.isArray(body.mustHaveFeatures)
+          ? body.mustHaveFeatures.map(String)
+          : undefined,
+        technicalExperience: body.technicalExperience as
+          | TechnicalExperienceLevel
+          | undefined,
+        budgetConstraint: body.budgetConstraint as BudgetConstraint | undefined,
+        preferredToolId:
+          typeof body.preferredToolId === 'string' ? body.preferredToolId : undefined,
+        detailLevel:
+          body.detailLevel === 'technical'
+            ? 'technical'
+            : body.detailLevel === 'beginner'
+              ? 'beginner'
+              : undefined,
+      });
+      this.sendJson(res, 200, requestId, project);
+      return;
+    }
+
+    const builderDetailMatch = pathname.match(
+      /^\/api\/v1\/builder\/projects\/([^/]+)\/detail-level$/
+    );
+    if (method === 'PATCH' && builderDetailMatch) {
+      const body = await this.readJsonBody(req);
+      const project = this.core.guidedBuildEngine.setDetailLevel({
+        projectId: builderDetailMatch[1],
+        auth,
+        detailLevel: body.detailLevel === 'technical' ? 'technical' : 'beginner',
+      });
+      this.sendJson(res, 200, requestId, project);
+      return;
+    }
+
+    const builderResultMatch = pathname.match(
+      /^\/api\/v1\/builder\/projects\/([^/]+)\/submit-result$/
+    );
+    if (method === 'POST' && builderResultMatch) {
+      const body = await this.readJsonBody(req);
+      const project = this.core.guidedBuildEngine.submitStepResult({
+        projectId: builderResultMatch[1],
+        auth,
+        userObservation: String(body.userObservation || ''),
+        attachmentSummary:
+          typeof body.attachmentSummary === 'string'
+            ? body.attachmentSummary
+            : undefined,
+        markApproved:
+          typeof body.markApproved === 'boolean' ? body.markApproved : undefined,
+      });
+      this.sendJson(res, 200, requestId, project);
+      return;
+    }
+
+    const builderErrorMatch = pathname.match(
+      /^\/api\/v1\/builder\/projects\/([^/]+)\/report-error$/
+    );
+    if (method === 'POST' && builderErrorMatch) {
+      const body = await this.readJsonBody(req);
+      const project = this.core.guidedBuildEngine.reportStepError({
+        projectId: builderErrorMatch[1],
+        auth,
+        errorMessage: String(body.errorMessage || ''),
+        codeOrLogSnippet:
+          typeof body.codeOrLogSnippet === 'string'
+            ? body.codeOrLogSnippet
+            : undefined,
+      });
+      this.sendJson(res, 200, requestId, project);
+      return;
+    }
+
+    // 13. Account Deletion Workflow
     const userDeleteMatch = pathname.match(/^\/api\/v1\/users\/([^/]+)$/);
     if (method === 'DELETE' && userDeleteMatch) {
       const targetUserId = userDeleteMatch[1];

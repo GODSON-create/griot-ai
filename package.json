@@ -14,9 +14,10 @@
   "scripts": {
     "start": "node --no-warnings src/server.ts",
     "dev": "node --no-warnings --watch src/server.ts",
-    "test": "node --no-warnings --test tests/phase1.unit.test.ts tests/phase1.api.test.ts tests/phase1.liveProviders.test.ts",
+    "test": "node --no-warnings --test tests/phase1.unit.test.ts tests/phase1.api.test.ts tests/v1.localAndBuilder.test.ts tests/v1.realLocalInference.test.ts tests/phase1.liveProviders.test.ts",
     "test:unit": "node --no-warnings --test tests/phase1.unit.test.ts",
     "test:api": "node --no-warnings --test tests/phase1.api.test.ts",
+    "test:v1": "node --no-warnings --test tests/v1.localAndBuilder.test.ts tests/v1.realLocalInference.test.ts",
     "test:live": "node --no-warnings --test tests/phase1.liveProviders.test.ts",
     "typecheck": "node \"../DOT/dotlive/node_modules/typescript/bin/tsc\" --noEmit"
   }

@@ -1,11 +1,12 @@
 // ============================================================================
-// GRIOT AI — PROVIDER MANAGER, CREDENTIAL RESOLVER, TIMEOUT/RETRY & MOCK ADAPTER
-// Supports live official provider adapters, configurable timeouts & retries,
-// circuit breaker failover, and clearly distinguished development mock mode
-// when real provider credentials are unavailable.
+// GRIOT AI — PROVIDER MANAGER, CREDENTIAL RESOLVER, OLLAMA RUNTIME & CONCURRENCY
+// Supports live official provider adapters, local Ollama open-weight execution
+// with concurrency & queue controls, configurable timeouts & retries, circuit
+// breaker failover, and clearly distinguished development mock mode.
 // ============================================================================
 
 import type { GriotConfig } from '../config/env.ts';
+import { LocalInferenceConcurrencyController } from '../economics/concurrencyLimiter.ts';
 import type { TenantService } from '../tenancy/tenantService.ts';
 import type {
   ProviderGenerationRequest,
@@ -23,6 +24,7 @@ import {
 import { AnthropicProviderAdapter } from './anthropicAdapter.ts';
 import { GeminiProviderAdapter } from './geminiAdapter.ts';
 import { MistralProviderAdapter } from './mistralAdapter.ts';
+import { OllamaLocalRuntime, type OllamaRuntimeStatus } from './ollamaRuntime.ts';
 import { OpenAiProviderAdapter } from './openaiAdapter.ts';
 import { OpenWeightProviderAdapter } from './openWeightAdapter.ts';
 
@@ -54,6 +56,8 @@ export class ProviderManager {
   >();
   private readonly config: GriotConfig;
   private readonly tenantService: TenantService;
+  public readonly ollamaRuntime: OllamaLocalRuntime;
+  public readonly localConcurrency: LocalInferenceConcurrencyController;
 
   constructor(params: {
     config: GriotConfig;
@@ -64,6 +68,12 @@ export class ProviderManager {
     this.tenantService = params.tenantService;
 
     const fetchFn = params.fetchFn ?? globalThis.fetch;
+    this.ollamaRuntime = new OllamaLocalRuntime({
+      baseUrl: this.config.providers.open_weight.baseUrl,
+      fetchFn,
+    });
+    this.localConcurrency = new LocalInferenceConcurrencyController();
+
     this.registerAdapter(new OpenAiProviderAdapter(fetchFn));
     this.registerAdapter(new GeminiProviderAdapter(fetchFn));
     this.registerAdapter(new AnthropicProviderAdapter(fetchFn));
@@ -93,11 +103,6 @@ export class ProviderManager {
     return adapter;
   }
 
-  /**
-   * Resolves credentials for a provider without hardcoding:
-   * 1. Checks organisation encrypted vault (`provider_credentials_vault`) first
-   * 2. Falls back to environment configuration (`config.providers[provider]`)
-   */
   public resolveCredentials(provider: ProviderName, orgId?: string): ProviderCredentials {
     const envEntry = this.config.providers[provider] || { apiKey: null, baseUrl: '' };
     if (orgId) {
@@ -131,9 +136,14 @@ export class ProviderManager {
     return this.config.allowMockProvidersWhenUnconfigured;
   }
 
+  public async inspectLocalOllamaStatus(timeoutMs = 2500): Promise<OllamaRuntimeStatus> {
+    return this.ollamaRuntime.inspectRuntime(timeoutMs);
+  }
+
   /**
-   * Executes generation with timeout handling, retry limits, and transparent mock fallback
-   * when live credentials are absent and `allowMockProvidersWhenUnconfigured` is enabled.
+   * Executes generation with timeout handling, retry limits, local concurrency/queue
+   * controls, and transparent mock fallback when live credentials are absent and
+   * `allowMockProvidersWhenUnconfigured` is enabled.
    */
   public async executeGenerate(
     request: ProviderGenerationRequest,
@@ -147,61 +157,64 @@ export class ProviderManager {
       return this.generateMockResponse(request);
     }
 
-    const adapter = this.getAdapter(provider);
-    const maxAttempts = Math.max(1, 1 + (this.config.maxRetriesPerProvider ?? 1));
-    const timeoutMs = request.timeoutMs ?? this.config.requestTimeoutMs ?? 30000;
-    let lastError: Error | null = null;
+    const releaseSlot =
+      provider === 'open_weight' ? await this.localConcurrency.acquireSlot() : null;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const timeoutController = new AbortController();
-      const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
-      const onCallerAbort = () => timeoutController.abort();
-      request.abortSignal?.addEventListener('abort', onCallerAbort, { once: true });
+    try {
+      const adapter = this.getAdapter(provider);
+      const maxAttempts = Math.max(1, 1 + (this.config.maxRetriesPerProvider ?? 1));
+      const timeoutMs = request.timeoutMs ?? this.config.requestTimeoutMs ?? 30000;
+      let lastError: Error | null = null;
 
-      try {
-        const res = await adapter.generate(
-          {
-            ...request,
-            abortSignal: timeoutController.signal,
-          },
-          credentials
-        );
-        res.executionMode = 'live';
-        this.recordSuccess(provider, res.latencyMs);
-        return res;
-      } catch (err) {
-        if (timeoutController.signal.aborted && !request.abortSignal?.aborted) {
-          lastError = new ProviderError({
-            provider,
-            category: 'timeout',
-            statusCode: 504,
-            retryable: true,
-            message: `${provider} request timed out after ${timeoutMs}ms`,
-          });
-        } else {
-          lastError = err as Error;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const timeoutController = new AbortController();
+        const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+        const onCallerAbort = () => timeoutController.abort();
+        request.abortSignal?.addEventListener('abort', onCallerAbort, { once: true });
+
+        try {
+          const res = await adapter.generate(
+            {
+              ...request,
+              abortSignal: timeoutController.signal,
+            },
+            credentials
+          );
+          res.executionMode = 'live';
+          this.recordSuccess(provider, res.latencyMs);
+          return res;
+        } catch (err) {
+          if (timeoutController.signal.aborted && !request.abortSignal?.aborted) {
+            lastError = new ProviderError({
+              provider,
+              category: 'timeout',
+              statusCode: 504,
+              retryable: true,
+              message: `${provider} request timed out after ${timeoutMs}ms`,
+            });
+          } else {
+            lastError = err as Error;
+          }
+          const canRetry =
+            attempt < maxAttempts &&
+            lastError instanceof ProviderError &&
+            lastError.retryable;
+          if (!canRetry) {
+            this.recordFailure(provider, lastError.message);
+            throw lastError;
+          }
+        } finally {
+          clearTimeout(timer);
+          request.abortSignal?.removeEventListener('abort', onCallerAbort);
         }
-        const canRetry =
-          attempt < maxAttempts &&
-          lastError instanceof ProviderError &&
-          lastError.retryable;
-        if (!canRetry) {
-          this.recordFailure(provider, lastError.message);
-          throw lastError;
-        }
-      } finally {
-        clearTimeout(timer);
-        request.abortSignal?.removeEventListener('abort', onCallerAbort);
       }
-    }
 
-    throw lastError || new Error(`Provider '${provider}' failed after ${maxAttempts} attempts`);
+      throw lastError || new Error(`Provider '${provider}' failed after ${maxAttempts} attempts`);
+    } finally {
+      if (releaseSlot) releaseSlot();
+    }
   }
 
-  /**
-   * Executes streaming generation with transparent mock fallback when live credentials
-   * are absent and `allowMockProvidersWhenUnconfigured` is enabled.
-   */
   public async *executeStream(
     request: ProviderGenerationRequest,
     orgId?: string
@@ -215,9 +228,15 @@ export class ProviderManager {
       return;
     }
 
-    const adapter = this.getAdapter(provider);
-    for await (const chunk of adapter.stream(request, credentials)) {
-      yield { ...chunk, executionMode: 'live' };
+    const releaseSlot =
+      provider === 'open_weight' ? await this.localConcurrency.acquireSlot() : null;
+    try {
+      const adapter = this.getAdapter(provider);
+      for await (const chunk of adapter.stream(request, credentials)) {
+        yield { ...chunk, executionMode: 'live' };
+      }
+    } finally {
+      if (releaseSlot) releaseSlot();
     }
   }
 

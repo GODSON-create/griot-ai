@@ -461,9 +461,11 @@ export class RoutingEngine {
       score += 50;
     }
 
-    // Provider live health bonus
-    if (this.providerManager.isProviderAvailable(model.provider, context.orgId)) {
-      score += 25;
+    // Provider live health & live credential bonus (prefer configured live providers over unconfigured mock fallbacks)
+    if (this.providerManager.hasLiveCredentials(model.provider, context.orgId)) {
+      score += 55;
+    } else if (this.providerManager.isProviderAvailable(model.provider, context.orgId)) {
+      score += 10;
     }
     if (model.availability === 'degraded') {
       score -= 40;

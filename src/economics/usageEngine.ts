@@ -231,7 +231,7 @@ export class UsageAndEconomicsEngine {
     apiKeyId?: string | null;
     estimatedRequestCostUsd?: number;
   }): void {
-    const projectedDelta = Math.max(0, params.estimatedRequestCostUsd ?? 0.00001);
+    const projectedDelta = Math.max(0.000001, params.estimatedRequestCostUsd || 0.00001);
     const billing = this.getBillingAccount(params.orgId);
 
     if (billing.status !== 'active') {
@@ -244,7 +244,8 @@ export class UsageAndEconomicsEngine {
     // 1. Check total available credits across all 5 buckets (exempt for Avantage Group FREE access)
     if (
       !billing.isAvantageFreeAccess &&
-      billing.totalAvailableCreditsUsd < projectedDelta
+      (billing.totalAvailableCreditsUsd <= 0 ||
+        billing.totalAvailableCreditsUsd < projectedDelta)
     ) {
       throw new BudgetExceededError(
         `Insufficient credits: available balance ($${billing.totalAvailableCreditsUsd.toFixed(6)}) cannot cover projected request cost ($${projectedDelta.toFixed(6)}).`,

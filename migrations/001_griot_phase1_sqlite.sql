@@ -299,3 +299,38 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_org ON audit_logs(org_id, created_at);
+
+CREATE TABLE IF NOT EXISTS guided_projects (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  workspace_id TEXT,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  user_objective TEXT NOT NULL,
+  project_category TEXT NOT NULL,
+  technical_experience TEXT NOT NULL DEFAULT 'complete_beginner',
+  budget_constraint TEXT NOT NULL DEFAULT 'free_only',
+  selected_tool_id TEXT,
+  workflow_state TEXT NOT NULL DEFAULT 'IDEA_CAPTURE',
+  detail_level TEXT NOT NULL DEFAULT 'beginner',
+  requirements_json TEXT NOT NULL DEFAULT '{}',
+  clarifying_questions_json TEXT NOT NULL DEFAULT '[]',
+  specification_json TEXT NOT NULL DEFAULT '{}',
+  quality_check_json TEXT NOT NULL DEFAULT '{}',
+  ordered_steps_json TEXT NOT NULL DEFAULT '[]',
+  current_step_index INTEGER NOT NULL DEFAULT 0,
+  completed_steps_json TEXT NOT NULL DEFAULT '[]',
+  previous_instructions_json TEXT NOT NULL DEFAULT '[]',
+  submitted_results_json TEXT NOT NULL DEFAULT '[]',
+  reported_errors_json TEXT NOT NULL DEFAULT '[]',
+  decisions_constraints_json TEXT NOT NULL DEFAULT '[]',
+  outstanding_actions_json TEXT NOT NULL DEFAULT '[]',
+  conversation_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES organisations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_guided_projects_org_user ON guided_projects(org_id, user_id, updated_at);
+

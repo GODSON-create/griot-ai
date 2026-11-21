@@ -277,3 +277,35 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS guided_projects (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  user_objective TEXT NOT NULL,
+  project_category TEXT NOT NULL,
+  technical_experience TEXT NOT NULL DEFAULT 'complete_beginner',
+  budget_constraint TEXT NOT NULL DEFAULT 'free_only',
+  selected_tool_id TEXT,
+  workflow_state TEXT NOT NULL DEFAULT 'IDEA_CAPTURE',
+  detail_level TEXT NOT NULL DEFAULT 'beginner',
+  requirements_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  clarifying_questions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  specification_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  quality_check_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ordered_steps_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  current_step_index INTEGER NOT NULL DEFAULT 0,
+  completed_steps_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  previous_instructions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  submitted_results_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reported_errors_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  decisions_constraints_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  outstanding_actions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  conversation_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+

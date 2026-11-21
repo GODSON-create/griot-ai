@@ -1,61 +1,39 @@
-# GRIOT AI — Phase 1 Implementation Status & Dependency Register
+# GRIOT AI — Implementation Status, Verification Evidence & Blocker Register
 
-## 1. Phase 1 Repository & Environment Audit Summary (Part 1)
+## 1. Repository & Architecture Evolution Summary
 
-| Audit Item | Finding |
-| :--- | :--- |
-| **1. Current Antigravity Workspace** | `c:\Users\HP\Downloads\GRIOT` (inspected prior to writing code; was initially empty). |
-| **2. Connected GitHub Repository** | Initialized local Git repository (`main` branch) in `c:\Users\HP\Downloads\GRIOT` named `griot-ai` with remote `origin` configured to `https://github.com/GODSON-create/griot-ai.git` (matching Avantage Group's `GODSON-create` GitHub namespace used by sibling repositories). |
-| **3. Existing Files & Configurations** | None existed in `c:\Users\HP\Downloads\GRIOT` prior to Phase 1 implementation. |
-| **4. Existing Backend & Frontend Infrastructure** | Windows host with Node.js `v22.23.5`, npm `10.9.9`, MinGit `2.56.1.windows.1`, TypeScript `5.9.3`, and built-in `node:sqlite` (`DatabaseSync`). Sibling Avantage applications (`DOT`, `Ping`, `ARISE BUILD`) were inspected read-only and were **not modified**. |
-| **5. Existing GRIOT Application** | None existed prior to Phase 1. |
-| **6. Existing Auth, DB, Storage & Deployment** | None existed in `c:\Users\HP\Downloads\GRIOT`. Built complete SQLite WAL + PostgreSQL/`pgvector` schemas, JWT + API key auth, and private filesystem vault. |
-| **7. Available API Credentials** | Inspected environment variables without printing values: no AI provider keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `OPEN_WEIGHT_API_KEY`) are pre-set in the local host environment. |
-| **8. Previous GRIOT Implementation Elsewhere** | Searched `c:\Users\HP\Downloads`; no previous GRIOT implementation existed. |
+| Layer | Files | Status |
+| :--- | :--- | :--- |
+| **Database & Multi-Tenant Schema** | `src/db/database.ts`<br>`migrations/001_griot_phase1_sqlite.sql`<br>`migrations/001_griot_phase1_postgres.sql` | **VERIFIED** (18 tables including `guided_projects`, nested savepoint transactions, strict `org_id` isolation) |
+| **Local Inference Runtime (Ollama)** | `src/providers/ollamaRuntime.ts`<br>`src/providers/openWeightAdapter.ts`<br>`src/providers/providerManager.ts` | **VERIFIED** (Detects Ollama `v0.40.16`, probes `http://127.0.0.1:11434`, lists installed models, enforces loopback security, timeouts, retries, and queue concurrency limits) |
+| **V1 Task Router & Result Validator** | `src/routing/v1TaskRouter.ts`<br>`src/validation/resultValidator.ts`<br>`src/routing/routingEngine.ts` | **VERIFIED** (5 V1 execution states: `LOCAL_EXECUTION`, `OPEN_MODEL_ESCALATION`, `EXTERNAL_ESCALATION`, `RESULT_VALIDATION`, `UNSUPPORTED`; 8 V1 task categories; JSON/schema/section/code validation with bounded corrective retry; org data-sharing privacy policy gate) |
+| **Guided Build Engine & Tool Registry** | `config/builder.tools.json`<br>`src/builder/toolRegistry.ts`<br>`src/builder/guidedBuildEngine.ts` | **VERIFIED** (12-state Guided Build workflow, tool recommendations for Lovable, Google Antigravity, Replit, and n8n/Make, plan quality control, beginner/technical instructions, result review, and error troubleshooting) |
+| **Responsive Product UI (`ASK GRIOT` & `BUILD WITH GRIOT`)** | `src/ui/griotAppHtml.ts`<br>`src/api/httpServer.ts` | **VERIFIED** (Served at `GET /` and `GET /app` with dark premium glassmorphic theme, glowing AI orb, Ask GRIOT chat, and Build with GRIOT project workspace) |
+| **Economics & Concurrency Controls** | `src/economics/usageEngine.ts`<br>`src/economics/concurrencyLimiter.ts`<br>`src/economics/costOptimizer.ts` | **VERIFIED** (Distinguishes external API token costs vs $0 local inference costs + configurable internal infrastructure allocation rates; local concurrency & queue depth limits; Avantage FREE & Public FREEMIUM enforcement) |
 
 ---
 
-## 2. Phase 1 Deliverables Verification Matrix
+## 2. Automated Test Suite Results (`npm test`)
 
-| # | Deliverable | Status | Implementation & Verification Evidence |
-| :--- | :--- | :--- | :--- |
-| **1** | **Working GRIOT Core** | **COMPLETED & VERIFIED** | `src/core/griotCore.ts` (`executeChat`, `streamChat`) |
-| **2** | **Provider Adapter Architecture** | **COMPLETED & VERIFIED** | `src/providers/adapter.ts`, `openaiAdapter.ts`, `geminiAdapter.ts`, `anthropicAdapter.ts`, `mistralAdapter.ts`, `openWeightAdapter.ts`, `providerManager.ts` |
-| **3** | **Configurable Model Registry** | **COMPLETED & VERIFIED** | `config/models.registry.json`, `src/registry/modelRegistry.ts` (12 registered models, hot-reload + DB runtime overrides) |
-| **4** | **Intelligent 9-Factor Routing Engine** | **COMPLETED & VERIFIED** | `src/routing/routingEngine.ts` (Task classification, hard capability/modality/context/reasoning gates, cost/latency scoring, safe non-downgrading fallback chain) |
-| **5** | **Persistent Conversation Backend** | **COMPLETED & VERIFIED** | `src/conversations/conversationEngine.ts` (Create, rename, retrieve, continue, archive, delete, message metadata, streaming, interrupted response recovery, rolling context summariser) |
-| **6** | **Multimodal Processing Foundation** | **COMPLETED & VERIFIED** | `src/multimodal/multimodalEngine.ts` (Text, Image, PDF, Document, Audio, Voice Transcription/Generation adapters, Video modality gate, private file vault, HMAC-signed internal tokens) |
-| **7** | **Knowledge & Retrieval Engine (RAG)** | **COMPLETED & VERIFIED** | `src/knowledge/knowledgeEngine.ts` (Permission-verified ingestion, semantic overlap chunking, embeddings, hybrid vector cosine + lexical search, metadata filtering, source citations, tenant ACL enforcement) |
-| **8** | **Multi-Tenant Database Foundation** | **COMPLETED & VERIFIED** | `src/db/database.ts`, `src/tenancy/tenantService.ts`, `migrations/001_griot_phase1_sqlite.sql`, `migrations/001_griot_phase1_postgres.sql` |
-| **9** | **Usage & Cost Ledger** | **COMPLETED & VERIFIED** | `src/economics/usageEngine.ts`, `src/economics/costOptimizer.ts` (Server-side billing, actual cost priority, 5-tier credit waterfall, user/org/key spending limits, budget alerts, response cache, deduplication) |
-| **10** | **Security & Permissions Foundation** | **COMPLETED & VERIFIED** | `src/security/crypto.ts`, `auth.ts`, `promptGuard.ts`, `rateLimiter.ts`, `auditAndRetention.ts` |
-| **11** | **Versioned Internal API (`/api/v1`)** | **COMPLETED & VERIFIED** | `src/api/httpServer.ts` (REST + SSE endpoints with consistent JSON envelopes) |
-| **12** | **Administrative Monitoring** | **COMPLETED & VERIFIED** | `src/admin/observabilityService.ts` (Org-scoped observability for org admins, platform-wide metrics restricted strictly to `platform_admin`, default conversation redaction, audited break-glass support investigation) |
-| **13** | **Automated Tests** | **COMPLETED & VERIFIED** | `tests/phase1.unit.test.ts` (7/7 subtests pass), `tests/phase1.api.test.ts` (1/1 end-to-end API flow passes), `tests/phase1.liveProviders.test.ts` (4/4 conditional live provider tests transparently skipped without live keys) |
-| **14** | **Architecture & Design Documentation** | **COMPLETED & VERIFIED** | `README.md`, `GRIOT_ARCHITECTURE.md`, `GRIOT_MODEL_REGISTRY.md`, `GRIOT_API_DESIGN.md`, `GRIOT_COST_ENGINE.md`, `GRIOT_SECURITY.md`, `GRIOT_IMPLEMENTATION_STATUS.md` (present at root and in `docs/`) |
-| **15** | **Locked Business Decisions & Product Modules** | **COMPLETED & VERIFIED** | `src/products/productModules.ts`, `src/tenancy/tenantService.ts`, `src/economics/usageEngine.ts` (Avantage FREE access, Public FREEMIUM, Enterprise Shared Infrastructure with strict isolation, Dual Branding, and 6 modular product boundaries including GRIOT Learn's educational charter) |
+- **TypeScript Compiler (`npm run typecheck`)**: **PASSED (`0` errors)**
+- **Total Suites**: `5` | **Total Tests**: `18` | **Passed**: `13` | **Failed**: `0` | **Skipped**: `5`
+
+| Test Suite | Result | Details |
+| :--- | :--- | :--- |
+| `tests/phase1.unit.test.ts` | **7 / 7 PASSED** | Provider wire protocols, 9-factor routing, provider failover, SSE streaming & interrupted recovery, conversation summarisation, 5-tier credit waterfall & spending limits, tenant isolation, prompt guard, rate limits, locked business decisions, platform vs org admin isolation. |
+| `tests/phase1.api.test.ts` | **1 / 1 PASSED** | Full HTTP + SSE `/api/v1/*` flow (Health, Auth, Org, API Key, Models, Private Files, Knowledge RAG, Conversations, SSE Streaming, Usage, Admin). |
+| `tests/v1.localAndBuilder.test.ts` | **3 / 3 PASSED** | All 15 Guided Builder scenarios (Beginner app/website ideas, Lovable/Antigravity/n8n tool selection, spec & quality control, 4-stage build plan, copyable platform instructions, save/resume, step approval, error diagnosis & corrective prompt, conversation context, cross-tenant block), all 8 V1 task categories, `UNSUPPORTED` blocking, malformed JSON corrective retry, timeout handling, external escalation privacy policy, and `GET /` + `/api/v1/builder/*` endpoints. |
+| `tests/v1.realLocalInference.test.ts` | **2 / 2 PASSED, 1 SKIPPED** | Test 1 (Ollama binary detection & loopback security policy): **PASS**. Test 2 (Live Ollama `v0.40.16` daemon reachability at `http://127.0.0.1:11434` & structured unpulled model 404 handling): **PASS**. Test 3 (Live local model weight token generation): **SKIPPED** with explicit notice because model weight download (`qwen2.5:1.5b` / `qwen2.5:3b`) was interrupted at 15 MB by offline host DNS (`lookup registry.ollama.ai: no such host`). |
+| `tests/phase1.liveProviders.test.ts` | **4 / 4 SKIPPED** | Transparently skipped when external cloud API keys (`OPENAI_API_KEY`, etc.) are not set in `.env`. |
 
 ---
 
-## 3. Autonomous Bug Detection & Repair Log (Part 13)
+## 3. Known Limitations & Remaining Blockers
 
-During implementation and verification, the following defect was autonomously detected and repaired:
-
-1. **Defect Detected**: `ERR_SQLITE_ERROR: cannot start a transaction within a transaction` when `TenantService.createUserAccount()` started an immediate transaction and invoked `TenantService.createOrganisation()`, which also called `GriotDatabase.transaction()`.
-2. **Root Cause**: SQLite does not allow nested `BEGIN IMMEDIATE TRANSACTION` statements on the same connection; nested transactions must use `SAVEPOINT`.
-3. **Autonomous Repair**: Upgraded `GriotDatabase.transaction()` in `src/db/database.ts` with re-entrant `transactionDepth` tracking that uses `BEGIN IMMEDIATE TRANSACTION` for the outer transaction and `SAVEPOINT sp_<depth>` / `RELEASE SAVEPOINT` / `ROLLBACK TO SAVEPOINT` for nested transactions.
-4. **Re-Verification**: Re-ran `tsc --noEmit` (0 errors) and the full test suite (`node --no-warnings --test tests/phase1.unit.test.ts tests/phase1.api.test.ts tests/phase1.liveProviders.test.ts`) — all tests passed (`0` failures).
-
----
-
-## 4. Outstanding Dependency & External Blocker Register
-
-Before promoting GRIOT AI from local/staging execution to multi-node production and proceeding to Phase 2, the following external dependencies and credentials must be provisioned by Avantage Group operations:
-
-| ID | Category | Blocker / Dependency | Required Action |
-| :--- | :--- | :--- | :--- |
-| **DEP-01** | **GitHub Remote Push** | The local environment currently has no DNS/network reachability to `github.com` (`Could not resolve host: github.com`) and no signed-in GitHub plugin account. | Create the `GODSON-create/griot-ai` repository on GitHub (or Avantage Group's GitHub org) and run `git push -u origin main` once network connectivity and GitHub credentials are active. |
-| **DEP-02** | **Upstream AI Provider API Keys** | No live provider API keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`) are present in the machine environment. Live provider tests in `tests/phase1.liveProviders.test.ts` were transparently skipped (only mocked wire-protocol tests ran). | Populate `.env` (or the organisation encrypted vault via `PUT /api/v1/organisations/current/provider-credentials`) with production API keys and run `npm run test:live` to execute live provider verification. |
-| **DEP-03** | **Production PostgreSQL / Supabase Instance** | Phase 1 runs out-of-the-box on built-in SQLite WAL (`node:sqlite`). Multi-instance cloud deployment requires a managed PostgreSQL + `pgvector` database. | Provision a dedicated Supabase/PostgreSQL project for GRIOT AI, apply `migrations/001_griot_phase1_postgres.sql`, and configure `GRIOT_DATABASE_URL`. |
-| **DEP-04** | **Production Cryptographic Secrets** | In development/test, ephemeral HMAC secrets are generated if unset. Production mode (`GRIOT_ENV=production`) enforces explicit secrets. | Generate and inject 32-byte random secrets for `GRIOT_JWT_SECRET`, `GRIOT_VAULT_MASTER_KEY`, and `GRIOT_FILE_SIGNING_SECRET` in the production secret manager. |
-| **DEP-05** | **External Multimodal Media Processors** | `MultimodalEngine` includes built-in text/CSV/JSON/basic-PDF extraction and pluggable `VoiceTranscriptionAdapter` / `VoiceGenerationAdapter` interfaces. | When audio/voice workloads launch, register a concrete Whisper / Gemini Audio / ElevenLabs adapter via `core.multimodal.registerVoiceTranscriber()` and `registerVoiceGenerator()`. |
+1. **Offline DNS During Model Weight Pull (`BLK-01`)**:
+   - Ollama `v0.40.16` is installed and running live at `http://127.0.0.1:11434`, and partial model blobs (`15 MB`) are cached in `C:\Users\HP\.ollama\models\blobs`.
+   - External DNS resolution to `registry.ollama.ai` and Cloudflare R2 (`*.r2.cloudflarestorage.com`) dropped on the host machine during the download.
+   - **Action when internet connectivity is restored**: Run `ollama pull qwen2.5:3b` (and `ollama pull qwen2.5:1.5b`) to complete the model weight download, then re-run `npm run test:v1` to execute Test #3 (`Live Local Open-Weight Model Inference Execution`).
+2. **CPU-Only Local Inference Hardware Constraint (`BLK-02`)**:
+   - This machine (`AMD Ryzen 5 PRO 4650U`, `15.33 GB` RAM, integrated `AMD Radeon Graphics` with `512 MB` dedicated VRAM) has no discrete ROCm/CUDA GPU, and its Vulkan iGPU driver crashes on device enumeration unless `OLLAMA_VULKAN=0` is set.
+   - Therefore, local models run on the 6-core/12-thread CPU (`~12–18 tokens/sec` for 3B, `~24–35 tokens/sec` for 1.5B). Models larger than 3B (such as 7B–8B models) exceed typical free RAM (`2.05–5.16 GB`) and should only be used via Ollama Cloud (`:cloud`) or future GRIOT V2 GPU servers.

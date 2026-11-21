@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-11-20T00:00:00Z",
+  "note": "Configurable external creation tool metadata for BUILD WITH GRIOT. GRIOT guides users through these platforms via clear instructions and prompts without claiming direct automated control of external accounts.",
+  "tools": [
+    {
+      "id": "lovable",
+      "name": "Lovable",
+      "platformUrl": "https://lovable.dev",
+      "supportedProjectTypes": [
+        "website",
+        "web_application",
+        "business_system",
+        "ai_tool"
+      ],
+      "beginnerFriendliness": "high",
+      "codingRequirements": "none",
+      "freeTierAvailability": "Free starter allowance available with daily message limits (verify current plan limits on lovable.dev).",
+      "costConsiderations": "Starts with a free daily prompt allowance; paid monthly tiers required for higher prompt volume, private projects, or custom domains.",
+      "strengths": [
+        "Builds full visual websites and web apps from plain-English prompts",
+        "Live interactive preview right inside the browser",
+        "One-click publishing and optional Supabase backend connection",
+        "Extremely approachable for non-technical founders and beginners"
+      ],
+      "limitations": [
+        "Daily prompt limits on the free tier",
+        "Primarily targets React/Tailwind web apps rather than native mobile binaries or low-level systems"
+      ],
+      "requiredUserSetup": [
+        "Create a free account at lovable.dev",
+        "Open the main prompt box on the Lovable dashboard"
+      ],
+      "recommendedUseCases": [
+        "Non-technical founders building a landing page, customer portal, booking directory, or MVP web app",
+        "Rapid visual prototyping with minimal configuration"
+      ],
+      "navigationGuide": {
+        "openPlatform": "Open your browser and go to https://lovable.dev, then sign in.",
+        "whereToPastePrompt": "Click the main chat/prompt input box in the center of the Lovable dashboard (or the left chat sidebar inside an open project), paste the GRIOT prompt, and press Enter.",
+        "whereToSeeResult": "Watch the live preview pane on the right side of the Lovable workspace update once generation finishes."
+      }
+    },
+    {
+      "id": "replit",
+      "name": "Replit",
+      "platformUrl": "https://replit.com",
+      "supportedProjectTypes": [
+        "web_application",
+        "website",
+        "automation",
+        "ai_tool",
+        "business_system",
+        "mobile_application",
+        "other"
+      ],
+      "beginnerFriendliness": "high",
+      "codingRequirements": "low",
+      "freeTierAvailability": "Free starter workspace available with limited cloud runtime/credits (verify current Replit Core/Starter terms on replit.com).",
+      "costConsiderations": "Starter account is free for learning and basic prototypes; Replit Core subscription or usage credits required for full Replit Agent builds and always-on deployments.",
+      "strengths": [
+        "Zero local installation required — runs entirely in the browser",
+        "Supports Python, Node.js, HTML/CSS/JS, APIs, bots, and databases",
+        "Built-in live preview, console output, and one-click deployment"
+      ],
+      "limitations": [
+        "Free workspaces sleep when inactive and have resource caps",
+        "Full autonomous Replit Agent usage typically requires a paid plan"
+      ],
+      "requiredUserSetup": [
+        "Create an account at replit.com",
+        "Click '+ Create Repl' or use the AI prompt box on the home dashboard"
+      ],
+      "recommendedUseCases": [
+        "Beginners and intermediate builders creating web apps, Python scripts, automations, or backend APIs in the browser without installing local developer tools"
+      ],
+      "navigationGuide": {
+        "openPlatform": "Open https://replit.com in your browser and sign in.",
+        "whereToPastePrompt": "Click 'Create Repl' (or the AI chat tab in your workspace), paste the GRIOT instructions or code into the editor/chat, and click 'Run'.",
+        "whereToSeeResult": "Check the 'Webview' preview tab and the 'Console' tab on the right side of the Replit screen."
+      }
+    },
+    {
+      "id": "google_antigravity",
+      "name": "Google Antigravity",
+      "platformUrl": "https://idx.google.com",
+      "supportedProjectTypes": [
+        "web_application",
+        "mobile_application",
+        "ai_tool",
+        "business_system",
+        "automation",
+        "website",
+        "other"
+      ],
+      "beginnerFriendliness": "medium",
+      "codingRequirements": "low",
+      "freeTierAvailability": "Preview/free usage tiers depend on your Google account and workspace quota.",
+      "costConsiderations": "Ideal for builders who want full codebase ownership, local or workspace execution, and deep agentic engineering without vendor lock-in.",
+      "strengths": [
+        "Full agentic IDE capable of creating files, running terminal commands, and testing full-stack apps",
+        "Supports complex multi-file architectures, mobile apps, APIs, and custom databases",
+        "You own 100% of the generated source code locally"
+      ],
+      "limitations": [
+        "Requires opening an IDE workspace and basic familiarity with folders/terminal prompts compared to single-click website builders"
+      ],
+      "requiredUserSetup": [
+        "Open Google Antigravity IDE and select or create a project workspace folder",
+        "Open the Agent chat pane on the right side of the workspace"
+      ],
+      "recommendedUseCases": [
+        "Builders with some technical curiosity or ambitious full-stack, mobile, or custom AI applications who want complete code ownership"
+      ],
+      "navigationGuide": {
+        "openPlatform": "Launch Google Antigravity on your computer and open your project folder.",
+        "whereToPastePrompt": "Click the Agent chat input box, paste the exact GRIOT step prompt, and submit.",
+        "whereToSeeResult": "Review the created files in the Explorer sidebar and open the local preview URL or terminal output reported by the agent."
+      }
+    },
+    {
+      "id": "n8n_make",
+      "name": "n8n / Make (Visual Workflow Automation)",
+      "platformUrl": "https://n8n.io",
+      "supportedProjectTypes": [
+        "automation",
+        "business_system",
+        "ai_tool"
+      ],
+      "beginnerFriendliness": "medium",
+      "codingRequirements": "none",
+      "freeTierAvailability": "n8n can be self-hosted for free (open-source fair-code), and Make.com offers a free tier with monthly operation limits.",
+      "costConsiderations": "Self-hosted n8n is free; managed cloud plans charge per workflow execution.",
+      "strengths": [
+        "Connects WhatsApp, Gmail, Google Sheets, forms, webhooks, and AI without writing backend boilerplate",
+        "Visual step-by-step node canvas shows exactly where an automation succeeds or fails"
+      ],
+      "limitations": [
+        "Designed for backend workflows and triggers rather than custom visual consumer storefronts"
+      ],
+      "requiredUserSetup": [
+        "Create an account on Make.com or launch n8n",
+        "Click 'Create new workflow / scenario'"
+      ],
+      "recommendedUseCases": [
+        "Automating customer notifications, invoice generation, WhatsApp/email replies, lead capture, and daily business reports"
+      ],
+      "navigationGuide": {
+        "openPlatform": "Open your n8n or Make.com workspace and click 'Create Workflow'.",
+        "whereToPastePrompt": "Follow GRIOT's step-by-step node configuration and paste the provided JSON/webhook payload or AI prompt into the designated node field.",
+        "whereToSeeResult": "Click 'Test Workflow / Run Once' and verify that each node turns green with the expected output data."
+      }
+    }
+  ]
+}

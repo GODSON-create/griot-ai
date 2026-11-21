@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { ObservabilityAndAdminService } from '../admin/observabilityService.ts';
+import { GuidedBuildEngine } from '../builder/guidedBuildEngine.ts';
 import { loadGriotConfig, type GriotConfig } from '../config/env.ts';
 import {
   ConversationEngine,
@@ -28,7 +29,12 @@ import {
 } from '../providers/adapter.ts';
 import { ProviderManager } from '../providers/providerManager.ts';
 import { ModelRegistryService } from '../registry/modelRegistry.ts';
-import { RoutingEngine } from '../routing/routingEngine.ts';
+import { RoutingConstraintError, RoutingEngine } from '../routing/routingEngine.ts';
+import {
+  V1TaskRouter,
+  type V1ExecutionState,
+  type V1TaskCategory,
+} from '../routing/v1TaskRouter.ts';
 import { AuditAndRetentionService } from '../security/auditAndRetention.ts';
 import { AuthError, AuthService } from '../security/auth.ts';
 import { generateId } from '../security/crypto.ts';
@@ -53,6 +59,11 @@ import type {
   ToolDefinition,
   UsageLedgerRecord,
 } from '../types/domain.ts';
+import {
+  ResultValidationEngine,
+  type ResultValidationOutcome,
+  type ResultValidationRequirements,
+} from '../validation/resultValidator.ts';
 
 export interface GriotChatRequest {
   auth: AuthContext;
@@ -73,6 +84,9 @@ export interface GriotChatRequest {
   maxOutputTokens?: number;
   maxContextTokens?: number;
   responseFormat?: 'text' | 'json_object';
+  validationRequirements?: ResultValidationRequirements;
+  enforceV1ExternalEscalationPolicy?: boolean;
+  allowExternalEscalation?: boolean;
   tools?: ToolDefinition[];
   timeoutMs?: number;
   abortSignal?: AbortSignal;
@@ -87,6 +101,11 @@ export interface GriotChatResult {
     brandingMode: BrandingMode;
   };
   executionMode: ExecutionMode;
+  v1Routing?: {
+    v1Category: V1TaskCategory;
+    executionState: V1ExecutionState;
+    validationOutcome: ResultValidationOutcome;
+  };
   conversationId: string | null;
   userMessageId: string | null;
   assistantMessageId: string | null;
@@ -133,11 +152,14 @@ export class GriotCore {
   public readonly registry: ModelRegistryService;
   public readonly providerManager: ProviderManager;
   public readonly routingEngine: RoutingEngine;
+  public readonly v1TaskRouter: V1TaskRouter;
+  public readonly resultValidator: ResultValidationEngine;
   public readonly multimodal: MultimodalEngine;
   public readonly knowledgeEngine: KnowledgeEngine;
   public readonly usageEngine: UsageAndEconomicsEngine;
   public readonly costOptimizer: CostOptimizationEngine;
   public readonly conversationEngine: ConversationEngine;
+  public readonly guidedBuildEngine: GuidedBuildEngine;
   public readonly adminService: ObservabilityAndAdminService;
 
   constructor(options?: {
@@ -172,6 +194,8 @@ export class GriotCore {
       fetchFn: options?.fetchFn,
     });
     this.routingEngine = new RoutingEngine(this.registry, this.providerManager);
+    this.v1TaskRouter = new V1TaskRouter();
+    this.resultValidator = new ResultValidationEngine();
     this.multimodal = new MultimodalEngine({
       database: this.database,
       audit: this.audit,
@@ -185,6 +209,11 @@ export class GriotCore {
       ttlSeconds: this.config.cacheTtlSeconds,
     });
     this.conversationEngine = new ConversationEngine(this.database, this.audit);
+    this.guidedBuildEngine = new GuidedBuildEngine({
+      database: this.database,
+      audit: this.audit,
+      conversationEngine: this.conversationEngine,
+    });
     this.adminService = new ObservabilityAndAdminService({
       database: this.database,
       registry: this.registry,
@@ -373,7 +402,32 @@ export class GriotCore {
       messagesForModel.push(...rawMessages);
     }
 
-    // 3. Intelligent Model Routing (merges product module hints, user preferences, and request hints)
+    // 3. V1 Task Classification & Intelligent Model Routing
+    const v1Classification = this.v1TaskRouter.classifyV1Task({
+      messages: messagesForModel,
+      responseFormat: request.responseFormat,
+      explicitValidation: request.validationRequirements,
+    });
+
+    if (v1Classification.executionState === 'UNSUPPORTED') {
+      this.audit.record({
+        orgId: org.id,
+        actorUserId: request.auth.userId,
+        action: 'v1_router.unsupported_task_blocked',
+        resourceType: 'chat_request',
+        resourceId: requestId,
+        outcome: 'denied',
+        details: { reason: v1Classification.unsupportedReason },
+      });
+      throw new RoutingConstraintError(
+        v1Classification.unsupportedReason || 'Task is unsupported by GRIOT V1.',
+        {
+          executionState: 'UNSUPPORTED',
+          v1Category: v1Classification.category,
+        }
+      );
+    }
+
     const mergedHints: RoutingHints = {
       ...productBoundary.defaultRoutingHints,
       preferredProvider:
@@ -499,7 +553,7 @@ export class GriotCore {
       };
     }
 
-    // 7. Execute Provider Call with Safe Non-Downgrading Fallbacks & In-Flight Deduplication
+    // 7. Execute Provider Call with Safe Non-Downgrading Fallbacks, Privacy Policy Gate & Result Validation
     const candidates: ModelRegistryEntry[] = [
       routingDecision.selectedModel,
       ...routingDecision.fallbackChain,
@@ -509,10 +563,54 @@ export class GriotCore {
     let usedModel: ModelRegistryEntry = routingDecision.selectedModel;
     let deduplicated = false;
     let lastError: Error | null = null;
+    let activeV1State: V1ExecutionState =
+      routingDecision.selectedModel.provider === 'open_weight'
+        ? 'LOCAL_EXECUTION'
+        : 'EXTERNAL_ESCALATION';
+    let lastValidationOutcome: ResultValidationOutcome = {
+      valid: true,
+      normalizedContent: '',
+      failures: [],
+      correctiveInstruction: null,
+    };
 
     for (let idx = 0; idx < candidates.length; idx++) {
       const candidate = candidates[idx];
       this.multimodal.assertModelSupportsAttachments(candidate, attachments);
+
+      // If V1 external escalation privacy policy is enforced and candidate is an external provider, verify permission
+      if (
+        request.enforceV1ExternalEscalationPolicy &&
+        candidate.provider !== 'open_weight'
+      ) {
+        const escalationCheck = this.v1TaskRouter.canEscalateToExternalProvider({
+          orgPreferences: org.preferences as Record<string, unknown>,
+          explicitRequestPermission: request.allowExternalEscalation,
+          hasExternalCredentials: this.providerManager.hasLiveCredentials(
+            candidate.provider,
+            org.id
+          ),
+        });
+        if (!escalationCheck.allowed) {
+          lastError = new AuthError(
+            escalationCheck.reason,
+            403,
+            'EXTERNAL_ESCALATION_BLOCKED_BY_POLICY'
+          );
+          continue;
+        }
+      }
+
+      if (idx === 0) {
+        activeV1State =
+          candidate.provider === 'open_weight' ? 'LOCAL_EXECUTION' : 'EXTERNAL_ESCALATION';
+      } else {
+        activeV1State =
+          candidate.provider === 'open_weight'
+            ? 'OPEN_MODEL_ESCALATION'
+            : 'EXTERNAL_ESCALATION';
+      }
+
       attemptedModels.push(candidate.id);
 
       try {
@@ -535,8 +633,63 @@ export class GriotCore {
               org.id
             )
         );
-        finalResponse = execResult.response;
+        let candidateResponse = execResult.response;
         deduplicated = execResult.deduplicated;
+
+        // Run V1 Result Validation if explicit validation requirements or JSON format requested
+        if (request.validationRequirements || request.responseFormat === 'json_object') {
+          let validation = this.resultValidator.validate(
+            candidateResponse.content,
+            candidateResponse.finishReason,
+            v1Classification.validationRequirements
+          );
+
+          // Single bounded corrective retry if validation failed
+          if (!validation.valid && validation.correctiveInstruction) {
+            const retryRes = await this.providerManager.executeGenerate(
+              {
+                requestId: `${requestId}_vretry`,
+                model: candidate,
+                messages: [
+                  ...messagesForModel,
+                  { role: 'assistant', content: candidateResponse.content },
+                  { role: 'user', content: validation.correctiveInstruction },
+                ],
+                temperature: 0.1,
+                maxOutputTokens: request.maxOutputTokens,
+                responseFormat: request.responseFormat,
+                stream: false,
+                timeoutMs: request.timeoutMs,
+                abortSignal: request.abortSignal,
+              },
+              org.id
+            );
+            validation = this.resultValidator.validate(
+              retryRes.content,
+              retryRes.finishReason,
+              v1Classification.validationRequirements
+            );
+            if (validation.valid) {
+              candidateResponse = retryRes;
+            }
+          }
+
+          lastValidationOutcome = validation;
+          if (!validation.valid) {
+            lastError = new Error(
+              `Result validation failed on ${candidate.id}: ${validation.failures.join('; ')}`
+            );
+            continue;
+          }
+          candidateResponse.content = validation.normalizedContent;
+        } else {
+          lastValidationOutcome = this.resultValidator.validate(
+            candidateResponse.content,
+            candidateResponse.finishReason
+          );
+        }
+
+        finalResponse = candidateResponse;
         usedModel = candidate;
         break;
       } catch (err) {
@@ -665,6 +818,11 @@ export class GriotCore {
       productModule: productModuleId,
       branding,
       executionMode,
+      v1Routing: {
+        v1Category: v1Classification.category,
+        executionState: activeV1State,
+        validationOutcome: lastValidationOutcome,
+      },
       conversationId: activeConversationId,
       userMessageId,
       assistantMessageId,
