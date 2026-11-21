@@ -458,6 +458,41 @@
       "deploymentType": "self_hosted_or_compatible_endpoint"
     },
     {
+      "id": "open_weight:qwen2.5-0.5b",
+      "provider": "open_weight",
+      "modelIdentifier": "qwen2.5:0.5b",
+      "displayName": "Qwen 2.5 0.5B Instruct (Local Ollama Ultra-Fast)",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "extraction",
+        "reasoning",
+        "coding",
+        "json_mode",
+        "streaming"
+      ],
+      "contextWindow": 32768,
+      "maxOutputTokens": 4096,
+      "inputPricingPer1M": 0.00,
+      "cachedInputPricingPer1M": 0.00,
+      "outputPricingPer1M": 0.00,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 84
+      },
+      "deploymentType": "self_hosted_or_compatible_endpoint"
+    },
+    {
       "id": "open_weight:llama-3.3-70b-instruct",
       "provider": "open_weight",
       "modelIdentifier": "meta-llama/Llama-3.3-70B-Instruct",

@@ -142,7 +142,8 @@ export class V1TaskRouter {
     ) {
       category = 'text_classification';
     } else if (
-      /```|\b(write\s+a?\s*(typescript|javascript|python|sql|html|css)\s+function|debug\s+this\s+code|code\s+snippet|implement\s+a\s+function|refactor\s+this)\b/i.test(
+      validationRequirements.requireCodeBlock ||
+      /```|\b(write\s+(?:[\w-]+\s+){0,4}(typescript|javascript|python|sql|html|css|function|script|code)|debug\s+this\s+code|code\s+snippet|implement\s+a\s+function|refactor\s+this)\b/i.test(
         combinedText
       )
     ) {
@@ -160,7 +161,7 @@ export class V1TaskRouter {
     ) {
       category = 'explanations_and_learning';
     } else if (
-      /\b(write\s+an?\s+(email|letter|article|memo|proposal|bio|announcement)|rewrite\s+this|polish\s+this\s+draft|professional\s+tone)\b/i.test(
+      /\b(write\s+(?:[\w-]+\s+){0,4}(email|letter|article|memo|proposal|bio|announcement|note|draft|post)|rewrite\s+this|polish\s+this\s+draft|professional\s+tone)\b/i.test(
         combinedText
       )
     ) {
