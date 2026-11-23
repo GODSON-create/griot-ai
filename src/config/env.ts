@@ -135,8 +135,13 @@ export function loadGriotConfig(overrides: Partial<GriotConfig> = {}): GriotConf
         baseUrl: process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1',
       },
       open_weight: {
-        apiKey: process.env.OPEN_WEIGHT_API_KEY || null,
-        baseUrl: process.env.OPEN_WEIGHT_BASE_URL || 'http://127.0.0.1:8000/v1',
+        apiKey:
+          process.env.OPEN_WEIGHT_API_KEY ||
+          (env === 'development' ? 'local-ollama' : null),
+        baseUrl:
+          process.env.OPEN_WEIGHT_BASE_URL ||
+          process.env.OLLAMA_BASE_URL ||
+          'http://127.0.0.1:11434/v1',
       },
     },
   };

@@ -1,7 +1,9 @@
 // ============================================================================
 // GRIOT AI — RESPONSIVE WEB EXPERIENCE ("ASK GRIOT" & "BUILD WITH GRIOT")
 // Dark, premium foundation with warm orange/amber gradients, subtle
-// glassmorphism, soft glowing AI orb, and dedicated Guided Build Workspace.
+// glassmorphism, soft glowing AI orb, persistent conversation history,
+// saved project resumption, project specification & quality control view,
+// and dedicated Guided Build Workspace.
 // ============================================================================
 
 export function renderGriotWebInterfaceHtml(): string {
@@ -50,13 +52,15 @@ export function renderGriotWebInterfaceHtml(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 1.1rem 2rem;
+      padding: 1rem 2rem;
       border-bottom: 1px solid var(--border-neutral);
       backdrop-filter: blur(16px);
-      background: rgba(9, 9, 13, 0.75);
+      background: rgba(9, 9, 13, 0.8);
       position: sticky;
       top: 0;
       z-index: 40;
+      flex-wrap: wrap;
+      gap: 0.75rem;
     }
 
     .brand {
@@ -78,12 +82,23 @@ export function renderGriotWebInterfaceHtml(): string {
 
     .brand-badge {
       font-size: 0.72rem;
-      font-weight: 500;
-      padding: 0.2rem 0.6rem;
+      font-weight: 600;
+      padding: 0.2rem 0.65rem;
       border-radius: 999px;
       background: rgba(255, 107, 43, 0.14);
       border: 1px solid var(--border-subtle);
       color: #fdba74;
+      cursor: pointer;
+    }
+
+    .runtime-pill {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #6ee7b7;
     }
 
     .nav-tabs {
@@ -111,12 +126,11 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     main {
-      max-width: 1180px;
+      max-width: 1220px;
       margin: 0 auto;
       padding: 2rem 1.25rem 4rem;
     }
 
-    /* Home Hero & Glowing AI Orb */
     .hero {
       text-align: center;
       padding: 2.2rem 1rem 2.8rem;
@@ -154,7 +168,7 @@ export function renderGriotWebInterfaceHtml(): string {
 
     .hero p {
       color: var(--text-secondary);
-      max-width: 640px;
+      max-width: 650px;
       margin: 0 auto 2rem;
       font-size: 1.02rem;
     }
@@ -163,7 +177,7 @@ export function renderGriotWebInterfaceHtml(): string {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 1.5rem;
-      max-width: 880px;
+      max-width: 900px;
       margin: 0 auto;
     }
 
@@ -191,7 +205,7 @@ export function renderGriotWebInterfaceHtml(): string {
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--accent-amber);
-      margin-bottom: 0.6rem;
+      margin-bottom: 0.5rem;
     }
 
     .action-card h2 {
@@ -230,8 +244,8 @@ export function renderGriotWebInterfaceHtml(): string {
       color: var(--text-primary);
       border: 1px solid var(--border-neutral);
       border-radius: 12px;
-      padding: 0.65rem 1.15rem;
-      font-size: 0.86rem;
+      padding: 0.6rem 1.1rem;
+      font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
     }
@@ -242,7 +256,7 @@ export function renderGriotWebInterfaceHtml(): string {
 
     .view-panel {
       display: none;
-      margin-top: 1.5rem;
+      margin-top: 1.25rem;
     }
 
     .view-panel.active {
@@ -253,15 +267,32 @@ export function renderGriotWebInterfaceHtml(): string {
       background: var(--bg-surface);
       border: 1px solid var(--border-neutral);
       border-radius: 20px;
-      padding: 1.65rem;
+      padding: 1.55rem;
       backdrop-filter: blur(18px);
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.35rem;
     }
 
-    /* ASK GRIOT Chat Panel */
+    .ask-layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 1.25rem;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 330px 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 880px) {
+      .ask-layout, .workspace-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .chat-messages {
-      min-height: 300px;
-      max-height: 480px;
+      min-height: 320px;
+      max-height: 490px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -271,10 +302,10 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     .msg-bubble {
-      padding: 1rem 1.25rem;
+      padding: 0.95rem 1.2rem;
       border-radius: 16px;
-      max-width: 85%;
-      font-size: 0.95rem;
+      max-width: 86%;
+      font-size: 0.94rem;
       white-space: pre-wrap;
     }
 
@@ -288,6 +319,12 @@ export function renderGriotWebInterfaceHtml(): string {
       align-self: flex-start;
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--border-neutral);
+    }
+
+    .msg-meta {
+      margin-top: 0.45rem;
+      font-size: 0.74rem;
+      color: var(--text-muted);
     }
 
     .input-row {
@@ -312,30 +349,13 @@ export function renderGriotWebInterfaceHtml(): string {
       border-color: var(--accent-amber);
     }
 
-    /* BUILD WITH GRIOT Dedicated Project Workspace */
-    .workspace-grid {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 1.5rem;
-    }
-
-    @media (max-width: 860px) {
-      .workspace-grid {
-        grid-template-columns: 1fr;
-      }
-      header {
-        flex-direction: column;
-        gap: 0.75rem;
-      }
-    }
-
     .step-item {
-      padding: 0.85rem 1rem;
+      padding: 0.82rem 0.95rem;
       border-radius: 14px;
       border: 1px solid var(--border-neutral);
-      margin-bottom: 0.65rem;
+      margin-bottom: 0.6rem;
       background: rgba(255, 255, 255, 0.02);
-      font-size: 0.88rem;
+      font-size: 0.86rem;
     }
 
     .step-item.active {
@@ -354,7 +374,7 @@ export function renderGriotWebInterfaceHtml(): string {
       background: rgba(255, 255, 255, 0.07);
       border-radius: 999px;
       overflow: hidden;
-      margin: 0.6rem 0 1.2rem;
+      margin: 0.55rem 0 1.15rem;
     }
 
     .progress-bar-fill {
@@ -367,33 +387,50 @@ export function renderGriotWebInterfaceHtml(): string {
       background: #07070a;
       border: 1px solid var(--border-subtle);
       border-radius: 14px;
-      padding: 1.1rem;
+      padding: 1.05rem;
       font-family: "Cascadia Code", Consolas, monospace;
-      font-size: 0.86rem;
+      font-size: 0.85rem;
       white-space: pre-wrap;
-      margin: 0.75rem 0 1rem;
+      margin: 0.7rem 0 1rem;
       color: #fed7aa;
     }
 
     .meta-pill {
       display: inline-block;
-      padding: 0.25rem 0.7rem;
+      padding: 0.22rem 0.65rem;
       border-radius: 999px;
-      font-size: 0.76rem;
+      font-size: 0.75rem;
       font-weight: 600;
       background: rgba(255, 255, 255, 0.07);
-      margin-right: 0.4rem;
-      margin-bottom: 0.4rem;
+      margin-right: 0.35rem;
+      margin-bottom: 0.35rem;
     }
 
     .section-label {
-      font-size: 0.76rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.07em;
       color: var(--accent-amber);
       font-weight: 700;
-      margin-top: 1rem;
-      margin-bottom: 0.35rem;
+      margin-top: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .conv-list-item {
+      padding: 0.6rem 0.8rem;
+      border-radius: 10px;
+      border: 1px solid var(--border-neutral);
+      margin-bottom: 0.45rem;
+      font-size: 0.83rem;
+      cursor: pointer;
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .conv-list-item.active, .conv-list-item:hover {
+      border-color: var(--accent-amber);
+      color: var(--text-primary);
+      background: rgba(255,107,43,0.1);
     }
   </style>
 </head>
@@ -401,8 +438,9 @@ export function renderGriotWebInterfaceHtml(): string {
   <header>
     <div class="brand">
       <div class="brand-orb-mini"></div>
-      <span>GRIOT AI</span>
-      <span class="brand-badge">Powered by Avantage</span>
+      <span id="header-brand-title">GRIOT AI</span>
+      <span class="brand-badge" onclick="toggleBrandMode()" id="header-brand-badge" title="Click to toggle standalone vs ecosystem branding">Powered by Avantage</span>
+      <span class="runtime-pill" id="header-runtime-pill">Checking Local Inference...</span>
     </div>
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="switchMode('home')" id="tab-home">Home</button>
@@ -412,7 +450,7 @@ export function renderGriotWebInterfaceHtml(): string {
   </header>
 
   <main>
-    <!-- HOME SCREEN: Two Primary Actions Immediately Obvious -->
+    <!-- HOME SCREEN -->
     <section id="view-home" class="view-panel active">
       <div class="hero">
         <div class="ai-orb-container">
@@ -441,38 +479,66 @@ export function renderGriotWebInterfaceHtml(): string {
 
     <!-- VIEW A: ASK GRIOT -->
     <section id="view-ask" class="view-panel">
-      <div class="glass-panel">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-          <div>
-            <h2 style="font-size:1.35rem;">ASK GRIOT</h2>
-            <p style="color:var(--text-secondary); font-size:0.88rem;">General AI Assistance &bull; Local-First Intelligence</p>
+      <div class="ask-layout">
+        <!-- Left Sidebar: Persistent Conversations -->
+        <div class="glass-panel">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem;">
+            <span class="action-tag" style="margin:0;">Conversations</span>
+            <button class="btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.75rem;" onclick="startNewConversation()">+ New</button>
           </div>
-          <select id="ask-module" style="width:auto;">
-            <option value="griot_chat">GRIOT Chat (General Assistant)</option>
-            <option value="griot_learn">GRIOT Learn (Entrepreneurship, Finance &amp; Tech)</option>
-            <option value="griot_business">GRIOT Business (Strategy &amp; Operations)</option>
-            <option value="griot_develop">GRIOT Develop (Coding Assistance)</option>
-          </select>
+          <div id="conv-sidebar-list">
+            <div class="conv-list-item active">Current Session</div>
+          </div>
         </div>
 
-        <div class="chat-messages" id="chat-messages">
-          <div class="msg-bubble msg-assistant">Welcome to <strong>ASK GRIOT</strong>. Ask me any question, request a summary or business draft, or explore a topic in entrepreneurship, finance, or technology.</div>
-        </div>
+        <!-- Right Chat Area -->
+        <div class="glass-panel">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <h2 style="font-size:1.3rem;">ASK GRIOT</h2>
+              <p style="color:var(--text-secondary); font-size:0.85rem;">Local-First Open-Weight Execution &bull; Persistent Context</p>
+            </div>
+            <select id="ask-module" style="width:auto;">
+              <option value="griot_chat">GRIOT Chat (General Assistant)</option>
+              <option value="griot_learn">GRIOT Learn (Entrepreneurship, Finance &amp; Tech)</option>
+              <option value="griot_business">GRIOT Business (Strategy &amp; Operations)</option>
+              <option value="griot_develop">GRIOT Develop (Coding Assistance)</option>
+            </select>
+          </div>
 
-        <div class="input-row">
-          <textarea id="ask-input" rows="2" placeholder="Ask a question, request a lesson, or paste text to summarise..." style="flex:1;"></textarea>
-          <button class="btn-primary" onclick="sendAskGriot()">Send</button>
+          <div class="chat-messages" id="chat-messages">
+            <div class="msg-bubble msg-assistant">Welcome to <strong>ASK GRIOT</strong>. Ask me any question, request a summary or business draft, or explore entrepreneurship, financial education, engineering, and technology.</div>
+          </div>
+
+          <div class="input-row">
+            <textarea id="ask-input" rows="2" placeholder="Ask a question, request a lesson, or paste text to summarise..." style="flex:1;"></textarea>
+            <button class="btn-primary" onclick="sendAskGriot()" id="ask-send-btn">Send</button>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- VIEW B: BUILD WITH GRIOT -->
     <section id="view-build" class="view-panel">
+      <!-- Saved Projects Bar -->
+      <div class="glass-panel" id="saved-projects-bar" style="display:none; padding:1rem 1.4rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+          <div>
+            <span class="action-tag" style="margin:0;">Saved Guided Projects</span>
+            <p style="font-size:0.84rem; color:var(--text-secondary);">Resume any project right where you left off without explaining everything again.</p>
+          </div>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <select id="saved-projects-select" style="width:auto; min-width:240px;" onchange="resumeSelectedProject(this.value)"></select>
+            <button class="btn-secondary" onclick="resetIntakeView()">+ New Idea</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Project Creation Card -->
       <div class="glass-panel" id="builder-intake-card">
         <span class="action-tag">Guided Creation Engine</span>
         <h2 style="font-size:1.45rem; margin-bottom:0.4rem;">BUILD WITH GRIOT</h2>
-        <p style="color:var(--text-secondary); font-size:0.92rem; margin-bottom:1.2rem;">Describe your idea in plain words. GRIOT will classify your project, recommend the simplest suitable creation tool (Lovable, Google Antigravity, Replit, or n8n/Make), and guide you step by step.</p>
+        <p style="color:var(--text-secondary); font-size:0.92rem; margin-bottom:1.2rem;">Describe your idea in plain words. GRIOT will classify your project, recommend the simplest suitable creation tool (Lovable, Google Antigravity, Replit, or n8n/Make), generate a quality-checked specification, and guide you step by step.</p>
 
         <div style="display:grid; gap:1rem;">
           <div>
@@ -499,7 +565,7 @@ export function renderGriotWebInterfaceHtml(): string {
             </div>
           </div>
           <div>
-            <button class="btn-primary" onclick="startGuidedProject()">Generate My Guided Build Plan &rarr;</button>
+            <button class="btn-primary" onclick="startGuidedProject()" id="start-build-btn">Generate My Guided Build Plan &rarr;</button>
           </div>
         </div>
       </div>
@@ -507,12 +573,12 @@ export function renderGriotWebInterfaceHtml(): string {
       <!-- Dedicated Project Workspace -->
       <div id="builder-workspace" style="display:none;">
         <div class="workspace-grid">
-          <!-- Left Sidebar: Project Overview & Build Plan Stepper -->
+          <!-- Left Sidebar: Project Overview, Specification & Build Plan Stepper -->
           <div>
             <div class="glass-panel">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span class="action-tag" id="ws-state-badge">ACTIVE_STEP</span>
-                <button class="btn-secondary" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick="resetIntakeView()">+ New Project</button>
+                <span class="runtime-pill" id="ws-qc-badge">QC Verified</span>
               </div>
               <h3 id="ws-title" style="font-size:1.15rem; margin:0.4rem 0;">Project Title</h3>
               <p id="ws-objective" style="color:var(--text-secondary); font-size:0.84rem; margin-bottom:0.8rem;"></p>
@@ -529,6 +595,9 @@ export function renderGriotWebInterfaceHtml(): string {
 
               <div class="section-label">Sequential Build Plan</div>
               <div id="ws-step-list"></div>
+
+              <div class="section-label">MVP Specification &amp; Features</div>
+              <ul id="ws-spec-features" style="padding-left:1.1rem; font-size:0.82rem; color:var(--text-secondary);"></ul>
             </div>
           </div>
 
@@ -593,10 +662,40 @@ export function renderGriotWebInterfaceHtml(): string {
 
   <script>
     let sessionToken = null;
+    let activeConversationId = null;
     let activeProject = null;
+    let brandEcosystem = true;
+
+    async function checkLocalRuntime() {
+      try {
+        const res = await fetch('/api/v1/local-runtime');
+        const json = await res.json();
+        const pill = document.getElementById('header-runtime-pill');
+        if (json.success && json.data && json.data.ollama && json.data.ollama.apiReachable) {
+          const models = json.data.ollama.installedModels || [];
+          const modelLabel = models.length > 0 ? models[0].name : 'No Model Pulled';
+          pill.textContent = 'Ollama v' + json.data.ollama.ollamaVersion + ' • ' + modelLabel + ' (LIVE)';
+        } else {
+          pill.textContent = 'Local Ollama Standby';
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    function toggleBrandMode() {
+      brandEcosystem = !brandEcosystem;
+      const badge = document.getElementById('header-brand-badge');
+      badge.textContent = brandEcosystem ? 'Powered by Avantage' : 'Standalone Global';
+    }
 
     async function ensureDemoSession() {
       if (sessionToken) return sessionToken;
+      const stored = localStorage.getItem('griot_v1_jwt');
+      if (stored) {
+        sessionToken = stored;
+        return sessionToken;
+      }
       const email = 'builder_' + Math.random().toString(36).slice(2, 8) + '@griot.africa';
       const res = await fetch('/api/v1/auth/register', {
         method: 'POST',
@@ -610,15 +709,71 @@ export function renderGriotWebInterfaceHtml(): string {
       const json = await res.json();
       if (json.success && json.data && json.data.accessToken) {
         sessionToken = json.data.accessToken;
+        localStorage.setItem('griot_v1_jwt', sessionToken);
       }
       return sessionToken;
     }
 
-    function switchMode(mode) {
+    async function switchMode(mode) {
       document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
       document.getElementById('view-' + mode).classList.add('active');
       document.getElementById('tab-' + mode).classList.add('active');
+      if (mode === 'ask') await loadConversationsSidebar();
+      if (mode === 'build') await loadSavedProjectsBar();
+    }
+
+    async function loadConversationsSidebar() {
+      const token = await ensureDemoSession();
+      const res = await fetch('/api/v1/conversations', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      const json = await res.json();
+      if (!json.success) return;
+      const list = json.data.conversations || [];
+      const container = document.getElementById('conv-sidebar-list');
+      container.innerHTML = '';
+      if (list.length === 0) {
+        const d = document.createElement('div');
+        d.className = 'conv-list-item active';
+        d.textContent = 'New Session';
+        container.appendChild(d);
+        return;
+      }
+      list.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'conv-list-item' + (c.id === activeConversationId ? ' active' : '');
+        div.textContent = c.title;
+        div.onclick = () => loadConversationHistory(c.id);
+        container.appendChild(div);
+      });
+    }
+
+    function startNewConversation() {
+      activeConversationId = null;
+      document.getElementById('chat-messages').innerHTML =
+        '<div class="msg-bubble msg-assistant">Started a new <strong>ASK GRIOT</strong> conversation. What would you like to explore?</div>';
+      loadConversationsSidebar();
+    }
+
+    async function loadConversationHistory(convId) {
+      activeConversationId = convId;
+      const token = await ensureDemoSession();
+      const res = await fetch('/api/v1/conversations/' + convId + '/messages', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      const json = await res.json();
+      if (!json.success) return;
+      const chatBox = document.getElementById('chat-messages');
+      chatBox.innerHTML = '';
+      (json.data.messages || []).forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'msg-bubble ' + (m.role === 'user' ? 'msg-user' : 'msg-assistant');
+        div.textContent = m.content;
+        chatBox.appendChild(div);
+      });
+      chatBox.scrollTop = chatBox.scrollHeight;
+      loadConversationsSidebar();
     }
 
     async function sendAskGriot() {
@@ -633,25 +788,85 @@ export function renderGriotWebInterfaceHtml(): string {
       userDiv.textContent = prompt;
       chatBox.appendChild(userDiv);
 
-      const token = await ensureDemoSession();
-      const productModule = document.getElementById('ask-module').value;
+      const btn = document.getElementById('ask-send-btn');
+      btn.disabled = true;
+      btn.textContent = 'Thinking...';
 
-      const res = await fetch('/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify({ prompt, productModule })
+      try {
+        const token = await ensureDemoSession();
+        const productModule = document.getElementById('ask-module').value;
+
+        const res = await fetch('/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({
+            prompt,
+            productModule,
+            conversationId: activeConversationId || undefined,
+            createConversationIfMissing: true
+          })
+        });
+        const json = await res.json();
+        const botDiv = document.createElement('div');
+        botDiv.className = 'msg-bubble msg-assistant';
+        if (json.success) {
+          activeConversationId = json.data.conversationId;
+          botDiv.textContent = json.data.content;
+          const meta = document.createElement('div');
+          meta.className = 'msg-meta';
+          const v1Cat = json.data.v1Routing ? json.data.v1Routing.v1Category : json.data.routing.taskClassification;
+          meta.textContent = json.data.modelDisplayName + ' • ' + json.data.executionMode.toUpperCase() + ' • ' + v1Cat;
+          botDiv.appendChild(meta);
+          loadConversationsSidebar();
+        } else {
+          botDiv.textContent = 'Error: ' + (json.error ? json.error.message : 'Request failed');
+        }
+        chatBox.appendChild(botDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send';
+      }
+    }
+
+    async function loadSavedProjectsBar() {
+      const token = await ensureDemoSession();
+      const res = await fetch('/api/v1/builder/projects', {
+        headers: { 'Authorization': 'Bearer ' + token }
       });
       const json = await res.json();
-      const botDiv = document.createElement('div');
-      botDiv.className = 'msg-bubble msg-assistant';
-      botDiv.textContent = json.success
-        ? json.data.content
-        : ('Error: ' + (json.error ? json.error.message : 'Request failed'));
-      chatBox.appendChild(botDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
+      if (!json.success) return;
+      const projects = json.data.projects || [];
+      const bar = document.getElementById('saved-projects-bar');
+      const select = document.getElementById('saved-projects-select');
+      if (projects.length === 0) {
+        bar.style.display = 'none';
+        return;
+      }
+      bar.style.display = 'block';
+      select.innerHTML = '<option value="">-- Select a saved project to resume --</option>';
+      projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.title + ' (' + p.workflowState + ')';
+        if (activeProject && activeProject.id === p.id) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    async function resumeSelectedProject(projectId) {
+      if (!projectId) return;
+      const token = await ensureDemoSession();
+      const res = await fetch('/api/v1/builder/projects/' + projectId, {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      const json = await res.json();
+      if (json.success) {
+        renderProjectWorkspace(json.data);
+      }
     }
 
     async function startGuidedProject() {
@@ -659,25 +874,34 @@ export function renderGriotWebInterfaceHtml(): string {
       if (!idea) return alert('Please describe what you want to create.');
       const technicalExperience = document.getElementById('build-skill').value;
       const budgetConstraint = document.getElementById('build-budget').value;
-      const token = await ensureDemoSession();
+      const btn = document.getElementById('start-build-btn');
+      btn.disabled = true;
+      btn.textContent = 'Generating Build Plan...';
 
-      const res = await fetch('/api/v1/builder/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify({
-          ideaDescription: idea,
-          technicalExperience,
-          budgetConstraint
-        })
-      });
-      const json = await res.json();
-      if (!json.success) {
-        return alert(json.error ? json.error.message : 'Could not create project');
+      try {
+        const token = await ensureDemoSession();
+        const res = await fetch('/api/v1/builder/projects', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({
+            ideaDescription: idea,
+            technicalExperience,
+            budgetConstraint
+          })
+        });
+        const json = await res.json();
+        if (!json.success) {
+          return alert(json.error ? json.error.message : 'Could not create project');
+        }
+        await loadSavedProjectsBar();
+        renderProjectWorkspace(json.data);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate My Guided Build Plan →';
       }
-      renderProjectWorkspace(json.data);
     }
 
     function resetIntakeView() {
@@ -691,10 +915,22 @@ export function renderGriotWebInterfaceHtml(): string {
       document.getElementById('builder-workspace').style.display = 'block';
 
       document.getElementById('ws-state-badge').textContent = proj.workflowState;
+      document.getElementById('ws-qc-badge').textContent =
+        proj.qualityCheck && proj.qualityCheck.passed ? 'QC Passed (8/8)' : 'QC Checked';
       document.getElementById('ws-title').textContent = proj.title;
       document.getElementById('ws-objective').textContent = proj.userObjective;
       document.getElementById('ws-category-pill').textContent = proj.projectCategory.replace(/_/g, ' ');
       document.getElementById('ws-tool-pill').textContent = proj.selectedTool ? proj.selectedTool.name : 'Tool';
+
+      const specList = document.getElementById('ws-spec-features');
+      specList.innerHTML = '';
+      if (proj.specification && proj.specification.mvpFeatures) {
+        proj.specification.mvpFeatures.forEach(f => {
+          const li = document.createElement('li');
+          li.textContent = f;
+          specList.appendChild(li);
+        });
+      }
 
       const total = proj.orderedSteps.length || 1;
       const doneCount = proj.completedSteps.length;
@@ -795,7 +1031,10 @@ export function renderGriotWebInterfaceHtml(): string {
         body: JSON.stringify({ userObservation: obs, markApproved: true })
       });
       const json = await res.json();
-      if (json.success) renderProjectWorkspace(json.data);
+      if (json.success) {
+        await loadSavedProjectsBar();
+        renderProjectWorkspace(json.data);
+      }
     }
 
     async function submitStepTroubleshooting() {
@@ -813,8 +1052,13 @@ export function renderGriotWebInterfaceHtml(): string {
         body: JSON.stringify({ errorMessage: errText })
       });
       const json = await res.json();
-      if (json.success) renderProjectWorkspace(json.data);
+      if (json.success) {
+        await loadSavedProjectsBar();
+        renderProjectWorkspace(json.data);
+      }
     }
+
+    checkLocalRuntime();
   </script>
 </body>
 </html>`;

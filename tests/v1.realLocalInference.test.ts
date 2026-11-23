@@ -359,6 +359,24 @@ describe('GRIOT AI — V1 Real Local Ollama Runtime & Open-Weight Execution Suit
           err instanceof AuthError && err.code === 'TENANT_ISOLATION_DENIED'
       );
 
+      // Guided Builder Scenario 13: Running the Guided Build workflow with a real local model
+      const guidedProj = await core.guidedBuildEngine.startProject({
+        auth: authA,
+        ideaDescription:
+          'I want to build a customer order website for my Nairobi coffee roastery with a daily roast menu and subscription order form.',
+        technicalExperience: 'complete_beginner',
+        budgetConstraint: 'free_only',
+      });
+      assert.equal(guidedProj.projectCategory, 'website');
+      assert.equal(guidedProj.selectedToolId, 'lovable');
+      assert.equal(guidedProj.workflowState, 'ACTIVE_STEP');
+      assert.equal(guidedProj.orderedSteps.length, 4);
+      assert.match(
+        guidedProj.orderedSteps[0].whyItMatters,
+        /Local AI Tip:/,
+        'Expected real local Ollama model tip to be embedded in Stage 1 instruction'
+      );
+
       core.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

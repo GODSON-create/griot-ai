@@ -1,5 +1,5 @@
 // ============================================================================
-// GRIOT AI — PHASE 1 STANDALONE SERVER ENTRY POINT
+// GRIOT AI — STANDALONE SERVER ENTRY POINT (V1 Local Intelligence & Guided Builder)
 // ============================================================================
 
 import { GriotHttpServer } from './api/httpServer.ts';
@@ -7,17 +7,22 @@ import { GriotCore } from './core/griotCore.ts';
 
 async function bootstrap(): Promise<void> {
   const core = new GriotCore();
+  const localSync = await core.syncLocalOllamaModels();
   const server = new GriotHttpServer(core);
   const port = await server.listen();
 
   console.log(
     JSON.stringify({
       event: 'griot_ai_core_started',
-      phase: 1,
+      phase: 'v1_local_intelligence_and_guided_builder',
       env: core.config.env,
       host: core.config.host,
       port,
+      webInterfaceUrl: `http://${core.config.host}:${port}/`,
       modelsRegistered: core.registry.listModels().length,
+      localOllamaReachable: localSync.reachable,
+      installedLocalModels: localSync.installedModelNames,
+      activatedLocalRegistryModels: localSync.activatedRegistryIds,
       timestamp: new Date().toISOString(),
     })
   );

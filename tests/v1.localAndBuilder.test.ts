@@ -203,6 +203,39 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
         err instanceof AuthError && err.code === 'TENANT_ISOLATION_DENIED'
     );
 
+    // Scenario 14: Handling unavailable local models in Guided Builder gracefully
+    core.guidedBuildEngine.setLocalAiEnhancer(async () => {
+      throw new ProviderError({
+        provider: 'open_weight',
+        category: 'provider_unavailable',
+        message: 'Simulated local Ollama daemon offline',
+      });
+    });
+    const offlineFallbackProj = await core.guidedBuildEngine.startProject({
+      auth: authA,
+      ideaDescription:
+        'I want to build an internal inventory tracker for my pharmacy in Kumasi.',
+      technicalExperience: 'complete_beginner',
+      budgetConstraint: 'free_only',
+    });
+    assert.equal(offlineFallbackProj.workflowState, 'ACTIVE_STEP');
+    assert.equal(offlineFallbackProj.orderedSteps.length, 4);
+    assert.equal(offlineFallbackProj.qualityCheck?.passed, true);
+
+    // Scenario 15: Handling invalid or incomplete local model output in Guided Builder gracefully
+    core.guidedBuildEngine.setLocalAiEnhancer(async () => '   ');
+    const invalidOutputProj = await core.guidedBuildEngine.startProject({
+      auth: authA,
+      ideaDescription:
+        'I want to automate daily WhatsApp order notifications from a Google Sheet.',
+      technicalExperience: 'complete_beginner',
+      budgetConstraint: 'free_only',
+    });
+    assert.equal(invalidOutputProj.projectCategory, 'automation');
+    assert.equal(invalidOutputProj.selectedToolId, 'n8n_make');
+    assert.equal(invalidOutputProj.orderedSteps.length, 4);
+    assert.ok(!invalidOutputProj.orderedSteps[0].whyItMatters.includes('Local AI Tip:'));
+
     core.close();
   });
 

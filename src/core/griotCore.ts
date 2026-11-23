@@ -214,6 +214,40 @@ export class GriotCore {
       audit: this.audit,
       conversationEngine: this.conversationEngine,
     });
+    this.guidedBuildEngine.setLocalAiEnhancer(async (promptText: string) => {
+      const localModels = this.registry
+        .listModels({ provider: 'open_weight', onlyAvailable: true })
+        .filter((m) => m.routingEligibility.eligible);
+      if (localModels.length === 0) return null;
+      const candidate =
+        this.v1TaskRouter.selectLowestCostLocalModel(localModels, 256) ||
+        localModels[0];
+      if (!this.providerManager.hasLiveCredentials('open_weight')) {
+        return null;
+      }
+      const res = await this.providerManager.executeGenerate({
+        requestId: generateId('gb_ai'),
+        model: candidate,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are GRIOT Guided Builder Coach. Reply with one clear, beginner-friendly sentence only.',
+          },
+          { role: 'user', content: promptText },
+        ],
+        maxOutputTokens: 80,
+        timeoutMs: 12000,
+      });
+      const validated = this.resultValidator.validate(res.content, res.finishReason, {
+        minLengthChars: 12,
+        maxLengthChars: 400,
+      });
+      if (!validated.valid) {
+        return null;
+      }
+      return validated.normalizedContent;
+    });
     this.adminService = new ObservabilityAndAdminService({
       database: this.database,
       registry: this.registry,
@@ -1084,6 +1118,57 @@ export class GriotCore {
       fallbackUsed,
       usageLedger: ledger,
       assistantMessage: savedAssistantMsg,
+    };
+  }
+
+  /**
+   * Probes the local Ollama daemon and synchronizes model availability in the GRIOT Model Registry
+   * so automatic routing selects installed open-weight models first.
+   */
+  public async syncLocalOllamaModels(): Promise<{
+    reachable: boolean;
+    installedModelNames: string[];
+    activatedRegistryIds: string[];
+  }> {
+    const status = await this.providerManager.inspectLocalOllamaStatus(2500);
+    if (!status.apiReachable) {
+      return {
+        reachable: false,
+        installedModelNames: [],
+        activatedRegistryIds: [],
+      };
+    }
+
+    const installedSet = new Set(
+      status.installedModels.map((m) => m.name.toLowerCase())
+    );
+    const activatedRegistryIds: string[] = [];
+
+    for (const model of this.registry.listModels({ provider: 'open_weight' })) {
+      const idLower = model.modelIdentifier.toLowerCase();
+      const isInstalled =
+        installedSet.has(idLower) || installedSet.has(`${idLower}:latest`);
+      if (isInstalled) {
+        this.registry.updateModelOverride({
+          modelId: model.id,
+          availability: 'available',
+          eligible: true,
+        });
+        activatedRegistryIds.push(model.id);
+      } else if (status.installedModels.length > 0) {
+        // Mark unpulled open-weight models offline so router selects the installed local model
+        this.registry.updateModelOverride({
+          modelId: model.id,
+          availability: 'offline',
+          eligible: false,
+        });
+      }
+    }
+
+    return {
+      reachable: true,
+      installedModelNames: status.installedModels.map((m) => m.name),
+      activatedRegistryIds,
     };
   }
 
