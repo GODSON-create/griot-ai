@@ -54,6 +54,14 @@ export class ProviderManager {
       lastError: string | null;
     }
   >();
+  private readonly modelCooldowns = new Map<
+    string,
+    {
+      untilMs: number;
+      category: string;
+      reason: string;
+    }
+  >();
   private readonly config: GriotConfig;
   private readonly tenantService: TenantService;
   public readonly ollamaRuntime: OllamaLocalRuntime;
@@ -181,6 +189,7 @@ export class ProviderManager {
             credentials
           );
           res.executionMode = 'live';
+          this.clearModelCooldown(request.model.id);
           this.recordSuccess(provider, res.latencyMs);
           return res;
         } catch (err) {
@@ -194,6 +203,9 @@ export class ProviderManager {
             });
           } else {
             lastError = err as Error;
+          }
+          if (lastError instanceof ProviderError) {
+            this.recordModelFailureCooldown(request.model.id, lastError);
           }
           const canRetrySameModel =
             attempt < maxAttempts &&
@@ -348,7 +360,55 @@ export class ProviderManager {
     }
   }
 
+  /**
+   * Temporarily deprioritizes a specific model after a 429 quota/rate-limit, 503 overload,
+   * or 404 model-unavailable error so subsequent requests route directly to healthy models.
+   */
+  public recordModelFailureCooldown(modelId: string, err: ProviderError): void {
+    const now = Date.now();
+    let durationMs = 0;
+    if (err.category === 'quota_exceeded') {
+      durationMs = 10 * 60 * 1000; // 10 minutes cooldown for quota-exhausted model
+    } else if (
+      err.category === 'rate_limit' ||
+      err.category === 'provider_unavailable' ||
+      err.statusCode === 404
+    ) {
+      durationMs = 60 * 1000; // 60 seconds cooldown for transient rate limit / 503 / 404
+    }
+    if (durationMs > 0) {
+      this.modelCooldowns.set(modelId, {
+        untilMs: now + durationMs,
+        category: err.category,
+        reason: err.message.slice(0, 240),
+      });
+    }
+  }
+
+  public clearModelCooldown(modelId: string): void {
+    this.modelCooldowns.delete(modelId);
+  }
+
+  public isModelCoolingDown(modelId: string): boolean {
+    const entry = this.modelCooldowns.get(modelId);
+    if (!entry) return false;
+    if (Date.now() >= entry.untilMs) {
+      this.modelCooldowns.delete(modelId);
+      return false;
+    }
+    return true;
+  }
+
   public resetCircuit(provider?: ProviderName): void {
+    if (!provider) {
+      this.modelCooldowns.clear();
+    } else {
+      for (const key of this.modelCooldowns.keys()) {
+        if (key.startsWith(`${provider}:`)) {
+          this.modelCooldowns.delete(key);
+        }
+      }
+    }
     for (const [name, state] of this.healthStates.entries()) {
       if (!provider || name === provider) {
         state.consecutiveFailures = 0;

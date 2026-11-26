@@ -481,6 +481,11 @@ export class RoutingEngine {
       score -= 40;
     }
 
+    // Temporarily deprioritize models that recently returned 429 quota_exceeded / rate_limit / 503
+    if (this.providerManager.isModelCoolingDown(model.id)) {
+      score -= 250;
+    }
+
     const inputCost = model.inputPricingPer1M ?? 1.0;
     const outputCost = model.outputPricingPer1M ?? 3.0;
     const blendedCost = inputCost + outputCost * 0.5;

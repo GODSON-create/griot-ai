@@ -135,6 +135,47 @@
       "deploymentType": "cloud_managed_api"
     },
     {
+      "id": "gemini:gemini-3.5-flash-lite",
+      "provider": "gemini",
+      "modelIdentifier": "gemini-3.5-flash-lite",
+      "displayName": "Google Gemini 3.5 Flash-Lite",
+      "capabilities": [
+        "chat",
+        "writing",
+        "summarization",
+        "classification",
+        "extraction",
+        "reasoning",
+        "coding",
+        "vision",
+        "document_analysis",
+        "audio_understanding",
+        "video_understanding",
+        "long_context",
+        "json_mode",
+        "tool_use",
+        "streaming"
+      ],
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputPricingPer1M": 0.075,
+      "cachedInputPricingPer1M": 0.01875,
+      "outputPricingPer1M": 0.30,
+      "availability": "available",
+      "supportedModalities": {
+        "input": ["text", "image", "pdf", "document", "audio", "video"],
+        "output": ["text"]
+      },
+      "routingEligibility": {
+        "eligible": true,
+        "tiers": ["economy", "standard", "premium"],
+        "reasoningTier": "standard",
+        "latencyClass": "fast",
+        "priorityWeight": 97
+      },
+      "deploymentType": "cloud_managed_api"
+    },
+    {
       "id": "gemini:gemini-3.8-flash",
       "provider": "gemini",
       "modelIdentifier": "gemini-3.8-flash",
@@ -145,6 +186,7 @@
         "summarization",
         "classification",
         "extraction",
+        "reasoning",
         "coding",
         "vision",
         "document_analysis",
@@ -168,89 +210,9 @@
       "routingEligibility": {
         "eligible": true,
         "tiers": ["economy", "standard", "premium"],
-        "reasoningTier": "standard",
-        "latencyClass": "fast",
-        "priorityWeight": 96
-      },
-      "deploymentType": "cloud_managed_api"
-    },
-    {
-      "id": "gemini:gemini-3.5-flash-lite",
-      "provider": "gemini",
-      "modelIdentifier": "gemini-3.5-flash-lite",
-      "displayName": "Google Gemini 3.5 Flash-Lite",
-      "capabilities": [
-        "chat",
-        "writing",
-        "summarization",
-        "classification",
-        "extraction",
-        "coding",
-        "vision",
-        "document_analysis",
-        "audio_understanding",
-        "video_understanding",
-        "long_context",
-        "json_mode",
-        "tool_use",
-        "streaming"
-      ],
-      "contextWindow": 1048576,
-      "maxOutputTokens": 8192,
-      "inputPricingPer1M": 0.075,
-      "cachedInputPricingPer1M": 0.01875,
-      "outputPricingPer1M": 0.30,
-      "availability": "available",
-      "supportedModalities": {
-        "input": ["text", "image", "pdf", "document", "audio", "video"],
-        "output": ["text"]
-      },
-      "routingEligibility": {
-        "eligible": true,
-        "tiers": ["economy", "standard", "premium"],
-        "reasoningTier": "standard",
+        "reasoningTier": "advanced",
         "latencyClass": "fast",
         "priorityWeight": 95
-      },
-      "deploymentType": "cloud_managed_api"
-    },
-    {
-      "id": "gemini:gemini-3.1-flash-lite",
-      "provider": "gemini",
-      "modelIdentifier": "gemini-3.1-flash-lite",
-      "displayName": "Google Gemini 3.1 Flash-Lite",
-      "capabilities": [
-        "chat",
-        "writing",
-        "summarization",
-        "classification",
-        "extraction",
-        "coding",
-        "vision",
-        "document_analysis",
-        "audio_understanding",
-        "video_understanding",
-        "long_context",
-        "json_mode",
-        "tool_use",
-        "streaming"
-      ],
-      "contextWindow": 1048576,
-      "maxOutputTokens": 8192,
-      "inputPricingPer1M": 0.075,
-      "cachedInputPricingPer1M": 0.01875,
-      "outputPricingPer1M": 0.30,
-      "availability": "available",
-      "supportedModalities": {
-        "input": ["text", "image", "pdf", "document", "audio", "video"],
-        "output": ["text"]
-      },
-      "routingEligibility": {
-        "eligible": true,
-        "tiers": ["economy", "standard", "premium"],
-        "reasoningTier": "standard",
-        "latencyClass": "fast",
-        "priorityWeight": 94
       },
       "deploymentType": "cloud_managed_api"
     },
@@ -287,10 +249,10 @@
       },
       "routingEligibility": {
         "eligible": true,
-        "tiers": ["standard", "premium", "enterprise"],
+        "tiers": ["premium", "enterprise"],
         "reasoningTier": "deep_reasoning",
         "latencyClass": "medium",
-        "priorityWeight": 92
+        "priorityWeight": 88
       },
       "deploymentType": "cloud_managed_api"
     },

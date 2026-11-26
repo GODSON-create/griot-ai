@@ -29,6 +29,7 @@ import {
   splitPostgresMigrationStatements,
   translateSqliteToPostgres,
 } from '../src/db/sqlTranslator.ts';
+import { ProviderError } from '../src/providers/adapter.ts';
 import { LOVABLE_APP_DEFAULT_SCOPES } from '../src/security/auth.ts';
 
 /**
@@ -641,6 +642,66 @@ describe('Deployment, PostgreSQL Adapter, CORS & Lovable Integration Security', 
       assert.equal(createdProj.data.orgId, regData.data.personalOrg.id);
     } finally {
       await server.close();
+      core.close();
+    }
+  });
+
+  it('6. Routes free-tier Gemini requests to gemini:gemini-3.5-flash-lite first, retains gemini-3.8-flash second, and temporarily deprioritizes quota-exhausted models', () => {
+    const core = new GriotCore({
+      config: {
+        env: 'production',
+        sqlitePath: ':memory:',
+        jwtSecret: 'prod-test-jwt-secret-placeholder-32chars',
+        vaultMasterKey: 'prod-test-vault-secret-placeholder-32ch',
+        fileSigningSecret: 'prod-test-file-secret-placeholder-32chr',
+        providers: {
+          gemini: {
+            apiKey: 'test-gemini-live-key',
+            baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          },
+          openai: { apiKey: null, baseUrl: 'https://api.openai.com/v1' },
+          anthropic: { apiKey: null, baseUrl: 'https://api.anthropic.com/v1' },
+          mistral: { apiKey: null, baseUrl: 'https://api.mistral.ai/v1' },
+          open_weight: { apiKey: null, baseUrl: 'http://127.0.0.1:11434/v1' },
+        },
+      },
+    });
+
+    try {
+      // 1. Ordinary free-tier chat request selects gemini:gemini-3.5-flash-lite first, with gemini-3.8-flash second
+      const initialDecision = core.routingEngine.selectModel({
+        messages: [{ role: 'user', content: 'Introduce yourself as GRIOT AI.' }],
+        hints: { preferredProvider: 'gemini' },
+      });
+
+      assert.equal(initialDecision.selectedModel.id, 'gemini:gemini-3.5-flash-lite');
+      assert.equal(initialDecision.fallbackChain[0]?.id, 'gemini:gemini-3.8-flash');
+      assert.equal(
+        initialDecision.fallbackChain[1]?.id,
+        'gemini:gemini-3.1-pro-preview'
+      );
+
+      // 2. Simulate 429 quota_exceeded on gemini:gemini-3.5-flash-lite -> temporarily deprioritized
+      core.providerManager.recordModelFailureCooldown(
+        'gemini:gemini-3.5-flash-lite',
+        new ProviderError({
+          provider: 'gemini',
+          category: 'quota_exceeded',
+          statusCode: 429,
+          message: 'Quota exceeded for metric',
+        })
+      );
+      assert.equal(
+        core.providerManager.isModelCoolingDown('gemini:gemini-3.5-flash-lite'),
+        true
+      );
+
+      const postQuotaDecision = core.routingEngine.selectModel({
+        messages: [{ role: 'user', content: 'Introduce yourself as GRIOT AI.' }],
+        hints: { preferredProvider: 'gemini' },
+      });
+      assert.equal(postQuotaDecision.selectedModel.id, 'gemini:gemini-3.8-flash');
+    } finally {
       core.close();
     }
   });
