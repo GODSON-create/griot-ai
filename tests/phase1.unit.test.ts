@@ -169,7 +169,7 @@ describe('GRIOT AI — Phase 1 Core Infrastructure Unit & Subsystem Suite', () =
     const openWeightAdapter = new OpenWeightProviderAdapter(mockFetch);
 
     const openaiModel = core.registry.getModelById('openai:gpt-4o-mini')!;
-    const geminiModel = core.registry.getModelById('gemini:gemini-2.0-flash')!;
+    const geminiModel = core.registry.getModelById('gemini:gemini-3.8-flash')!;
     const anthropicModel = core.registry.getModelById('anthropic:claude-3-7-sonnet-20250219')!;
     const mistralModel = core.registry.getModelById('mistral:mistral-small-latest')!;
     const openWeightModel = core.registry.getModelById('open_weight:llama-3.3-70b-instruct')!;
