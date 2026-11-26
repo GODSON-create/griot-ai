@@ -66,10 +66,10 @@ describe('GRIOT AI — Phase 1 Conditional Live Provider Integration Tests', () 
     async () => {
       const adapter = new GeminiProviderAdapter();
       const model: ModelRegistryEntry = {
-        id: 'gemini:gemini-2.0-flash',
+        id: 'gemini:gemini-3.8-flash',
         provider: 'gemini',
-        modelIdentifier: 'gemini-2.0-flash',
-        displayName: 'Google Gemini 2.0 Flash',
+        modelIdentifier: 'gemini-3.8-flash',
+        displayName: 'Google Gemini 3.8 Flash',
         capabilities: ['chat', 'streaming'],
         contextWindow: 1048576,
         maxOutputTokens: 1024,

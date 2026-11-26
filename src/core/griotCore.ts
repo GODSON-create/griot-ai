@@ -734,9 +734,13 @@ export class GriotCore {
         break;
       } catch (err) {
         lastError = err as Error;
-        const isRetryable =
-          err instanceof ProviderError ? err.retryable || err.category === 'auth_error' : true;
-        if (!isRetryable || idx === candidates.length - 1) {
+        const canFallbackToNextModel =
+          err instanceof ProviderError
+            ? err.retryable ||
+              err.category === 'auth_error' ||
+              (err.statusCode === 404 && !request.routingHints?.requestedModelId)
+            : true;
+        if (!canFallbackToNextModel || idx === candidates.length - 1) {
           break;
         }
       }
