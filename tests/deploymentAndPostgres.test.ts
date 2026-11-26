@@ -452,6 +452,23 @@ describe('Deployment, PostgreSQL Adapter, CORS & Lovable Integration Security', 
       };
       assert.equal(deniedBody.success, false);
       assert.equal(deniedBody.error.code, 'CORS_ORIGIN_DENIED');
+
+      // 3. Same-origin POST request (hosted UI on Render sending Origin matching Host + X-Forwarded-Proto) -> permitted
+      const sameOriginPost = await fetch(`${baseUrl}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://griot-ai.onrender.com',
+          'X-Forwarded-Host': 'griot-ai.onrender.com',
+          'X-Forwarded-Proto': 'https',
+        },
+        body: JSON.stringify({
+          email: 'sameorigin@griot.ai',
+          displayName: 'Same Origin User',
+          password: 'SameOriginPassword123!',
+        }),
+      });
+      assert.equal(sameOriginPost.status, 201);
     } finally {
       await server.close();
       core.close();

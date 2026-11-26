@@ -92,8 +92,38 @@ export class GriotHttpServer {
     return this.server;
   }
 
+  private isSameOriginRequest(req: http.IncomingMessage, cleanOrigin: string): boolean {
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(cleanOrigin);
+    } catch {
+      return false;
+    }
+
+    const rawHost = req.headers['x-forwarded-host'] || req.headers['host'];
+    const hostHeader = (Array.isArray(rawHost) ? rawHost[0] : rawHost || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    if (!hostHeader) return false;
+
+    if (parsedOrigin.host.toLowerCase() !== hostHeader) {
+      return false;
+    }
+
+    const rawProto = req.headers['x-forwarded-proto'];
+    const forwardedProto = (Array.isArray(rawProto) ? rawProto[0] : rawProto || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    const expectedProto = forwardedProto || 'http';
+
+    return parsedOrigin.protocol.toLowerCase() === `${expectedProto}:`;
+  }
+
   /**
-   * Enforces explicit allowed-origin CORS policy (never wildcard `*` on authenticated routes)
+   * Enforces explicit allowed-origin CORS policy (never wildcard `*` on authenticated routes),
+   * permits genuine same-origin browser requests (e.g. POST from the hosted UI on the same host),
    * and responds to OPTIONS preflight requests with 204 No Content.
    */
   private applyCorsPolicy(req: http.IncomingMessage, res: http.ServerResponse): boolean {
@@ -103,7 +133,8 @@ export class GriotHttpServer {
 
     if (origin && origin.trim().length > 0) {
       const cleanOrigin = origin.trim();
-      if (!isOriginAllowed(cleanOrigin, this.core.config.allowedOrigins)) {
+      const sameOrigin = this.isSameOriginRequest(req, cleanOrigin);
+      if (!sameOrigin && !isOriginAllowed(cleanOrigin, this.core.config.allowedOrigins)) {
         throw new AuthError(
           `CORS policy blocked request from unapproved origin '${cleanOrigin}'.`,
           403,

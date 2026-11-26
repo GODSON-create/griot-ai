@@ -57,10 +57,19 @@ export function parseAllowedOrigins(
   rawOrigins: string | undefined,
   env: GriotConfig['env']
 ): string[] {
+  const renderExternalUrl = (process.env.RENDER_EXTERNAL_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+
   if (!rawOrigins || rawOrigins.trim().length === 0) {
-    return env === 'production'
-      ? [...DEFAULT_ALLOWED_ORIGINS_PROD]
-      : [...DEFAULT_ALLOWED_ORIGINS_DEV];
+    const defaults =
+      env === 'production'
+        ? [...DEFAULT_ALLOWED_ORIGINS_PROD]
+        : [...DEFAULT_ALLOWED_ORIGINS_DEV];
+    if (renderExternalUrl && !defaults.includes(renderExternalUrl)) {
+      defaults.push(renderExternalUrl);
+    }
+    return defaults;
   }
   const parsed = rawOrigins
     .split(',')
@@ -73,7 +82,14 @@ export function parseAllowedOrigins(
         'CRITICAL SECURITY ERROR: Wildcard (*) in GRIOT_ALLOWED_ORIGINS is forbidden for authenticated production services.'
       );
     }
-    return parsed.filter((o) => o !== '*');
+    const filtered = parsed.filter((o) => o !== '*');
+    if (renderExternalUrl && !filtered.includes(renderExternalUrl)) {
+      filtered.push(renderExternalUrl);
+    }
+    return filtered;
+  }
+  if (renderExternalUrl && !parsed.includes(renderExternalUrl)) {
+    parsed.push(renderExternalUrl);
   }
   return parsed;
 }
