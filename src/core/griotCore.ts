@@ -594,10 +594,9 @@ export class GriotCore {
     }
 
     // 7. Execute Provider Call with Safe Non-Downgrading Fallbacks, Privacy Policy Gate & Result Validation
-    const candidates: ModelRegistryEntry[] = [
-      routingDecision.selectedModel,
-      ...routingDecision.fallbackChain,
-    ];
+    const candidates: ModelRegistryEntry[] = request.routingHints?.requestedModelId
+      ? [routingDecision.selectedModel]
+      : [routingDecision.selectedModel, ...routingDecision.fallbackChain];
     const attemptedModels: string[] = [];
     let finalResponse: ProviderGenerationResponse | null = null;
     let usedModel: ModelRegistryEntry = routingDecision.selectedModel;
@@ -654,6 +653,12 @@ export class GriotCore {
       attemptedModels.push(candidate.id);
 
       try {
+        const candidateTimeoutMs =
+          request.timeoutMs ??
+          (candidates.length > 1 && candidate.provider !== 'open_weight'
+            ? Math.min(12000, this.config.requestTimeoutMs)
+            : this.config.requestTimeoutMs);
+
         const execResult = await this.costOptimizer.executeWithDeduplication(
           idx === 0 ? cacheKey : null,
           () =>
@@ -667,7 +672,7 @@ export class GriotCore {
                 responseFormat: request.responseFormat,
                 tools: request.tools,
                 stream: false,
-                timeoutMs: request.timeoutMs,
+                timeoutMs: candidateTimeoutMs,
                 abortSignal: request.abortSignal,
               },
               org.id

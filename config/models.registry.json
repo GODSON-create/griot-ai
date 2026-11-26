@@ -175,10 +175,10 @@
       "deploymentType": "cloud_managed_api"
     },
     {
-      "id": "gemini:gemini-3.1-flash-lite-preview",
+      "id": "gemini:gemini-3.5-flash-lite",
       "provider": "gemini",
-      "modelIdentifier": "gemini-3.1-flash-lite-preview",
-      "displayName": "Google Gemini 3.1 Flash-Lite Preview (Free-Tier Fallback)",
+      "modelIdentifier": "gemini-3.5-flash-lite",
+      "displayName": "Google Gemini 3.5 Flash-Lite",
       "capabilities": [
         "chat",
         "writing",
@@ -215,50 +215,10 @@
       "deploymentType": "cloud_managed_api"
     },
     {
-      "id": "gemini:gemini-2.5-flash",
+      "id": "gemini:gemini-3.1-flash-lite",
       "provider": "gemini",
-      "modelIdentifier": "gemini-2.5-flash",
-      "displayName": "Google Gemini 2.5 Flash (Free-Tier Fallback)",
-      "capabilities": [
-        "chat",
-        "writing",
-        "summarization",
-        "classification",
-        "extraction",
-        "coding",
-        "vision",
-        "document_analysis",
-        "audio_understanding",
-        "video_understanding",
-        "long_context",
-        "json_mode",
-        "tool_use",
-        "streaming"
-      ],
-      "contextWindow": 1048576,
-      "maxOutputTokens": 8192,
-      "inputPricingPer1M": 0.10,
-      "cachedInputPricingPer1M": 0.025,
-      "outputPricingPer1M": 0.40,
-      "availability": "available",
-      "supportedModalities": {
-        "input": ["text", "image", "pdf", "document", "audio", "video"],
-        "output": ["text"]
-      },
-      "routingEligibility": {
-        "eligible": true,
-        "tiers": ["economy", "standard", "premium"],
-        "reasoningTier": "standard",
-        "latencyClass": "fast",
-        "priorityWeight": 94
-      },
-      "deploymentType": "cloud_managed_api"
-    },
-    {
-      "id": "gemini:gemini-2.5-flash-lite",
-      "provider": "gemini",
-      "modelIdentifier": "gemini-2.5-flash-lite",
-      "displayName": "Google Gemini 2.5 Flash-Lite (Free-Tier High-Quota Fallback)",
+      "modelIdentifier": "gemini-3.1-flash-lite",
+      "displayName": "Google Gemini 3.1 Flash-Lite",
       "capabilities": [
         "chat",
         "writing",
@@ -290,7 +250,7 @@
         "tiers": ["economy", "standard", "premium"],
         "reasoningTier": "standard",
         "latencyClass": "fast",
-        "priorityWeight": 93
+        "priorityWeight": 94
       },
       "deploymentType": "cloud_managed_api"
     },

@@ -94,7 +94,7 @@ export function classifyHttpError(
   status: number,
   bodyText: string
 ): ProviderError {
-  const snippet = bodyText.slice(0, 400);
+  const snippet = bodyText.slice(0, 1200);
   if (status === 401 || status === 403) {
     return new ProviderError({
       provider,

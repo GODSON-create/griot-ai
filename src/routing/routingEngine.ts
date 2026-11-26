@@ -330,11 +330,10 @@ export class RoutingEngine {
     const sameProviderFallbacks = availableRemaining.filter(
       (m) => m.provider === selectedModel.provider
     );
-    const fallbackChain = [
-      ...differentProviderFallbacks,
-      ...sameProviderFallbacks,
-      ...unavailableRemaining,
-    ];
+    const fallbackChain =
+      availableRemaining.length > 0 || isConfiguredOrAvailable(selectedModel)
+        ? [...differentProviderFallbacks, ...sameProviderFallbacks]
+        : unavailableRemaining;
 
     return {
       selectedModel,

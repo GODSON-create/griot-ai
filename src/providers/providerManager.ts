@@ -199,7 +199,9 @@ export class ProviderManager {
             attempt < maxAttempts &&
             lastError instanceof ProviderError &&
             lastError.retryable &&
-            lastError.category !== 'quota_exceeded';
+            lastError.category !== 'quota_exceeded' &&
+            lastError.category !== 'provider_unavailable' &&
+            lastError.category !== 'rate_limit';
           if (!canRetrySameModel) {
             this.recordFailure(provider, lastError.message);
             throw lastError;
