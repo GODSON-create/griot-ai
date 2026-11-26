@@ -314,16 +314,27 @@ export class RoutingEngine {
 
     const selectedModel = scored[0].model;
 
-    // Build fallback chain: prioritize alternative providers first so a provider outage fails over cleanly,
-    // while guaranteeing every fallback satisfies the exact same hard requirements.
+    // Build fallback chain: prioritize configured/available providers first so production never
+    // wastes fallback attempts on unconfigured providers before trying configured same-provider fallbacks.
     const remaining = scored.slice(1).map((s) => s.model);
-    const differentProviderFallbacks = remaining.filter(
+    const isConfiguredOrAvailable = (m: ModelRegistryEntry) =>
+      this.providerManager.hasLiveCredentials(m.provider, params.orgId) ||
+      this.providerManager.isProviderAvailable(m.provider, params.orgId);
+
+    const availableRemaining = remaining.filter(isConfiguredOrAvailable);
+    const unavailableRemaining = remaining.filter((m) => !isConfiguredOrAvailable(m));
+
+    const differentProviderFallbacks = availableRemaining.filter(
       (m) => m.provider !== selectedModel.provider
     );
-    const sameProviderFallbacks = remaining.filter(
+    const sameProviderFallbacks = availableRemaining.filter(
       (m) => m.provider === selectedModel.provider
     );
-    const fallbackChain = [...differentProviderFallbacks, ...sameProviderFallbacks];
+    const fallbackChain = [
+      ...differentProviderFallbacks,
+      ...sameProviderFallbacks,
+      ...unavailableRemaining,
+    ];
 
     return {
       selectedModel,

@@ -195,11 +195,12 @@ export class ProviderManager {
           } else {
             lastError = err as Error;
           }
-          const canRetry =
+          const canRetrySameModel =
             attempt < maxAttempts &&
             lastError instanceof ProviderError &&
-            lastError.retryable;
-          if (!canRetry) {
+            lastError.retryable &&
+            lastError.category !== 'quota_exceeded';
+          if (!canRetrySameModel) {
             this.recordFailure(provider, lastError.message);
             throw lastError;
           }
@@ -340,7 +341,7 @@ export class ProviderManager {
     state.totalRequests += 1;
     state.totalErrors += 1;
     state.lastError = errorMessage;
-    if (state.consecutiveFailures >= 3) {
+    if (state.consecutiveFailures >= 6) {
       state.circuitOpenUntilMs = Date.now() + 30_000;
     }
   }

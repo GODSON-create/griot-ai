@@ -736,9 +736,11 @@ export class GriotCore {
         lastError = err as Error;
         const canFallbackToNextModel =
           err instanceof ProviderError
-            ? err.retryable ||
-              err.category === 'auth_error' ||
-              (err.statusCode === 404 && !request.routingHints?.requestedModelId)
+            ? (err.retryable ||
+                err.category === 'auth_error' ||
+                err.category === 'quota_exceeded' ||
+                err.statusCode === 404) &&
+              !request.routingHints?.requestedModelId
             : true;
         if (!canFallbackToNextModel || idx === candidates.length - 1) {
           break;
