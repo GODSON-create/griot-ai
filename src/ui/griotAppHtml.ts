@@ -276,30 +276,35 @@ export function renderGriotWebInterfaceHtml(): string {
       display: grid;
       grid-template-columns: 280px 1fr;
       gap: 1.25rem;
-      align-items: start;
+      align-items: stretch;
     }
 
     .ask-sidebar {
       display: flex;
       flex-direction: column;
-      max-height: calc(100vh - 150px);
-      min-height: 460px;
+      height: clamp(540px, calc(100vh - 150px), 780px);
+      overflow: hidden;
+      margin-bottom: 0;
     }
 
     .conv-sidebar-scroll {
       overflow-y: auto;
-      flex: 1;
+      flex: 1 1 0;
+      min-height: 0;
+      overscroll-behavior: contain;
       padding-right: 0.15rem;
     }
 
     .ask-chat-panel {
       display: flex;
       flex-direction: column;
-      min-height: 540px;
-      max-height: calc(100vh - 150px);
+      height: clamp(540px, calc(100vh - 150px), 780px);
+      overflow: hidden;
+      margin-bottom: 0;
     }
 
     .ask-chat-header {
+      flex-shrink: 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -337,20 +342,19 @@ export function renderGriotWebInterfaceHtml(): string {
         grid-template-columns: 1fr;
       }
       .ask-sidebar {
-        max-height: 260px;
-        min-height: auto;
+        height: auto;
+        max-height: 220px;
       }
       .ask-chat-panel {
-        max-height: none;
-        min-height: 460px;
+        height: clamp(460px, calc(100vh - 200px), 680px);
       }
     }
 
     .chat-messages {
-      flex: 1;
-      min-height: 320px;
-      max-height: 560px;
+      flex: 1 1 0;
+      min-height: 0;
       overflow-y: auto;
+      overscroll-behavior: contain;
       display: flex;
       flex-direction: column;
       gap: 1.05rem;
@@ -585,6 +589,7 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     .chat-composer-wrap {
+      flex-shrink: 0;
       width: 100%;
       max-width: 820px;
       margin: 0 auto;
@@ -1436,6 +1441,9 @@ export function renderGriotWebInterfaceHtml(): string {
     let authSubmitting = false;
     let isGenerating = false;
     let activeStreamController = null;
+    let activeGeneration = null;
+    let generationSeq = 0;
+    let sessionEpoch = 0;
     let generationCancelled = false;
     let editingConversationId = null;
     let pendingDeleteConversationId = null;
@@ -1625,18 +1633,64 @@ export function renderGriotWebInterfaceHtml(): string {
       return sess ? sess.token : null;
     }
 
-    function resetAccountScopedUiState() {
-      if (activeStreamController) {
-        generationCancelled = true;
-        try {
-          activeStreamController.abort();
-        } catch {
-          // Ignore abort errors during reset
+    function cancelActiveGeneration(reason) {
+      const gen = activeGeneration;
+      if (!gen) {
+        if (activeStreamController) {
+          generationCancelled = true;
+          try {
+            activeStreamController.abort();
+          } catch {
+            // Ignore abort errors
+          }
+          activeStreamController = null;
+          return true;
         }
+        return false;
+      }
+
+      gen.cancelled = true;
+      gen.reason = reason || 'user_stop';
+      generationCancelled = true;
+
+      const readerToCancel = gen.reader;
+      gen.reader = null;
+      if (readerToCancel && typeof readerToCancel.cancel === 'function') {
+        try {
+          Promise.resolve(readerToCancel.cancel()).catch(() => {});
+        } catch {
+          // Ignore reader cancel errors
+        }
+      }
+
+      try {
+        gen.controller.abort();
+      } catch {
+        // Ignore abort errors
+      }
+
+      if (typeof gen.cleanupStream === 'function') {
+        try {
+          gen.cleanupStream();
+        } catch {
+          // Ignore cleanup errors
+        }
+        gen.cleanupStream = null;
+      }
+
+      if (activeGeneration === gen) {
+        activeGeneration = null;
+      }
+      if (activeStreamController === gen.controller) {
         activeStreamController = null;
       }
+      return true;
+    }
+
+    function resetAccountScopedUiState() {
+      sessionEpoch += 1;
+      cancelActiveGeneration('account_reset');
       isGenerating = false;
-      generationCancelled = false;
       activeConversationId = null;
       activeConversationTitle = 'ASK GRIOT';
       cachedConversations = [];
@@ -1769,7 +1823,19 @@ export function renderGriotWebInterfaceHtml(): string {
         controller.abort();
       }, timeoutMs);
       const externalSignal = options.signal || null;
+      let externalListenerAttached = false;
       const onExternalAbort = () => controller.abort();
+      const detachExternalAbort = () => {
+        if (
+          externalListenerAttached &&
+          externalSignal &&
+          typeof externalSignal.removeEventListener === 'function'
+        ) {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+          externalListenerAttached = false;
+        }
+      };
+
       if (externalSignal) {
         if (externalSignal.aborted) {
           clearTimeout(timer);
@@ -1787,6 +1853,7 @@ export function renderGriotWebInterfaceHtml(): string {
         }
         if (typeof externalSignal.addEventListener === 'function') {
           externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+          externalListenerAttached = true;
         }
       }
 
@@ -1800,9 +1867,7 @@ export function renderGriotWebInterfaceHtml(): string {
         });
       } catch (err) {
         clearTimeout(timer);
-        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
-          externalSignal.removeEventListener('abort', onExternalAbort);
-        }
+        detachExternalAbort();
         if (externalSignal && externalSignal.aborted) {
           return {
             ok: false,
@@ -1846,12 +1911,31 @@ export function renderGriotWebInterfaceHtml(): string {
         };
       } finally {
         clearTimeout(timer);
-        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
-          externalSignal.removeEventListener('abort', onExternalAbort);
-        }
       }
 
       if (options.rawStream && res.ok) {
+        if (externalSignal && externalSignal.aborted) {
+          controller.abort();
+          detachExternalAbort();
+          if (res.body && typeof res.body.cancel === 'function') {
+            try {
+              Promise.resolve(res.body.cancel()).catch(() => {});
+            } catch {
+              // Ignore body cancel errors
+            }
+          }
+          return {
+            ok: false,
+            status: 0,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'USER_ABORTED',
+              message: 'Generation stopped.',
+              retryable: false
+            }
+          };
+        }
         const streamRequestId =
           res.headers && typeof res.headers.get === 'function'
             ? res.headers.get('x-griot-request-id')
@@ -1862,6 +1946,7 @@ export function renderGriotWebInterfaceHtml(): string {
           requestId: streamRequestId,
           data: null,
           response: res,
+          cleanupStream: detachExternalAbort,
           error: null
         };
       }
@@ -1871,6 +1956,8 @@ export function renderGriotWebInterfaceHtml(): string {
         envelope = await res.json();
       } catch {
         envelope = null;
+      } finally {
+        detachExternalAbort();
       }
 
       const requestId =
@@ -2849,18 +2936,18 @@ export function renderGriotWebInterfaceHtml(): string {
           requiresAuth: false
         };
       }
-      if (status === 503 || code === 'PROVIDER_PROVIDER_UNAVAILABLE' || code === 'SERVICE_UNAVAILABLE') {
-        return {
-          title: 'Provider Temporarily Unavailable',
-          message: 'The AI service is temporarily experiencing high demand (HTTP 503). Please try again shortly.',
-          retryable: true,
-          requiresAuth: false
-        };
-      }
       if (status === 504 || code === 'REQUEST_TIMEOUT' || code === 'PROVIDER_TIMEOUT') {
         return {
           title: 'Request Timed Out',
           message: 'GRIOT took too long to receive a response. Please try again or shorten your prompt.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 503 || code === 'PROVIDER_PROVIDER_UNAVAILABLE' || code === 'SERVICE_UNAVAILABLE') {
+        return {
+          title: 'Provider Temporarily Unavailable',
+          message: 'The AI service is temporarily experiencing high demand (HTTP 503). Please try again shortly.',
           retryable: true,
           requiresAuth: false
         };
@@ -2963,11 +3050,13 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     async function loadAvailableModels() {
+      const reqEpoch = sessionEpoch;
       const sel = document.getElementById('ask-model-select');
       const res = await griotFetch('/models?onlyAvailable=true', {
         method: 'GET',
         promptOnUnauth: false
       });
+      if (reqEpoch !== sessionEpoch) return [];
       if (!res.ok || !res.data || !Array.isArray(res.data.models)) {
         return [];
       }
@@ -3142,7 +3231,9 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     async function loadConversationsSidebar(options = {}) {
+      const reqEpoch = sessionEpoch;
       const res = await griotFetch('/conversations', { method: 'GET' });
+      if (reqEpoch !== sessionEpoch) return [];
       if (!res.ok || !res.data) return [];
       cachedConversations = res.data.conversations || [];
 
@@ -3297,6 +3388,7 @@ export function renderGriotWebInterfaceHtml(): string {
 
     async function loadConversationHistory(convId) {
       if (!convId) return { ok: false };
+      const reqEpoch = sessionEpoch;
       activeConversationId = convId;
       saveActiveConversationForSession(convId);
 
@@ -3310,6 +3402,7 @@ export function renderGriotWebInterfaceHtml(): string {
       const res = await griotFetch('/conversations/' + encodeURIComponent(convId) + '/messages', {
         method: 'GET'
       });
+      if (reqEpoch !== sessionEpoch) return { ok: false, stale: true };
       if (!res.ok || !res.data) {
         renderConversationsSidebarList();
         return res;
@@ -3333,16 +3426,8 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     function stopAskGriot() {
-      if (!isGenerating) return false;
-      generationCancelled = true;
-      if (activeStreamController) {
-        try {
-          activeStreamController.abort();
-        } catch {
-          // Ignore abort errors
-        }
-        activeStreamController = null;
-      }
+      if (!isGenerating && !activeGeneration) return false;
+      cancelActiveGeneration('user_stop');
       updateGenerationControls(false, 'Generation stopped.');
       return true;
     }
@@ -3442,9 +3527,46 @@ export function renderGriotWebInterfaceHtml(): string {
         chatBox.scrollTop = chatBox.scrollHeight;
       }
 
+      const previousConversationId = activeConversationId;
+      const previousConversationIds = new Set(
+        (cachedConversations || []).map(function (c) { return c.id; })
+      );
+
       generationCancelled = false;
-      activeStreamController = new AbortController();
+      const gen = {
+        id: ++generationSeq,
+        epoch: sessionEpoch,
+        controller: new AbortController(),
+        reader: null,
+        cancelled: false,
+        reason: null,
+        cleanupStream: null
+      };
+      activeGeneration = gen;
+      activeStreamController = gen.controller;
       updateGenerationControls(true, 'GRIOT is generating...');
+
+      const isStale = () => gen.epoch !== sessionEpoch;
+      const isCancelled = () => gen.cancelled || gen.controller.signal.aborted || isStale();
+
+      const refreshSidebarAfterTurn = async () => {
+        if (isStale()) return;
+        const refreshed = await loadConversationsSidebar();
+        if (isStale()) return;
+        if (!activeConversationId && !previousConversationId && Array.isArray(refreshed) && refreshed.length > 0) {
+          const newlyCreated = refreshed.find(function (c) {
+            return !previousConversationIds.has(c.id);
+          });
+          if (newlyCreated) {
+            activeConversationId = newlyCreated.id;
+            activeConversationTitle = newlyCreated.title || 'ASK GRIOT';
+            saveActiveConversationForSession(activeConversationId);
+            const titleEl = document.getElementById('ask-chat-title');
+            if (titleEl) titleEl.textContent = activeConversationTitle;
+            renderConversationsSidebarList();
+          }
+        }
+      };
 
       const productModuleEl = document.getElementById('ask-module');
       const productModule = productModuleEl && productModuleEl.value ? productModuleEl.value : 'griot_chat';
@@ -3481,15 +3603,33 @@ export function renderGriotWebInterfaceHtml(): string {
           method: 'POST',
           timeoutMs: 90000,
           rawStream: true,
-          signal: activeStreamController.signal,
+          signal: gen.controller.signal,
           body: requestPayload
         });
 
+        if (res.cleanupStream) {
+          gen.cleanupStream = res.cleanupStream;
+        }
+
+        if (isStale()) {
+          if (res.response && res.response.body && typeof res.response.body.cancel === 'function') {
+            try { await res.response.body.cancel(); } catch {}
+          }
+          return {
+            ok: true,
+            interrupted: true,
+            cancelledBySessionChange: true,
+            conversationId: null,
+            content: ''
+          };
+        }
+
         if (!res.ok) {
-          if (res.error && res.error.code === 'USER_ABORTED') {
+          if ((res.error && res.error.code === 'USER_ABORTED') || isCancelled()) {
             terminalEventType = 'interrupted';
             botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped before output arrived.</em></p>';
             botMeta.textContent = 'Stopped';
+            await refreshSidebarAfterTurn();
             return { ok: true, interrupted: true, conversationId: activeConversationId, content: '' };
           }
           const formatted = formatChatError(res.error, res.status);
@@ -3505,11 +3645,12 @@ export function renderGriotWebInterfaceHtml(): string {
         }
 
         reader = httpRes.body.getReader();
+        gen.reader = reader;
         const decoder = new TextDecoder('utf-8');
         let sseBuffer = '';
 
         const processSseFrame = function (frameText) {
-          if (generationCancelled) return;
+          if (isCancelled()) return;
           const lines = frameText.split(/\\r?\\n/);
           let eventType = '';
           const dataLines = [];
@@ -3531,6 +3672,8 @@ export function renderGriotWebInterfaceHtml(): string {
             return;
           }
 
+          if (isCancelled()) return;
+
           const resolvedType = evt.type || eventType;
           if (evt.conversationId) {
             activeConversationId = evt.conversationId;
@@ -3551,7 +3694,7 @@ export function renderGriotWebInterfaceHtml(): string {
               botMeta.textContent = routingLabel;
             }
           } else if (resolvedType === 'delta') {
-            if (generationCancelled) return;
+            if (isCancelled()) return;
             if (typeof evt.deltaText === 'string' && evt.deltaText.length > 0) {
               accumulatedText += evt.deltaText;
               botBody.innerHTML = renderSafeMarkdown(accumulatedText);
@@ -3594,13 +3737,13 @@ export function renderGriotWebInterfaceHtml(): string {
         };
 
         while (true) {
-          if (generationCancelled) {
+          if (isCancelled()) {
             try { await reader.cancel(); } catch {}
             break;
           }
           const readResult = await reader.read();
           if (readResult.done) break;
-          if (generationCancelled) {
+          if (isCancelled()) {
             try { await reader.cancel(); } catch {}
             break;
           }
@@ -3617,19 +3760,37 @@ export function renderGriotWebInterfaceHtml(): string {
           }
         }
 
-        if (!generationCancelled && sseBuffer.trim()) {
+        if (isStale()) {
+          return {
+            ok: true,
+            interrupted: true,
+            cancelledBySessionChange: true,
+            conversationId: null,
+            content: accumulatedText
+          };
+        }
+
+        if (!isCancelled() && sseBuffer.trim()) {
           processSseFrame(sseBuffer.trim());
         }
 
-        if (generationCancelled) {
+        if (isCancelled()) {
           terminalEventType = 'interrupted';
           streamMeta.status = 'interrupted';
           if (accumulatedText) {
             botBody.innerHTML = renderSafeMarkdown(accumulatedText);
           } else {
-            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped.</em></p>';
+            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped before output arrived.</em></p>';
           }
           botMeta.textContent = formatMessageModelMeta(streamMeta) || 'Stopped';
+          await refreshSidebarAfterTurn();
+          return {
+            ok: true,
+            conversationId: activeConversationId,
+            content: accumulatedText,
+            interrupted: true,
+            meta: streamMeta
+          };
         } else if (!terminalEventType) {
           if (accumulatedText) {
             streamMeta.status = 'interrupted';
@@ -3645,9 +3806,7 @@ export function renderGriotWebInterfaceHtml(): string {
         if (chatBox) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
-        if (activeConversationId) {
-          await loadConversationsSidebar();
-        }
+        await refreshSidebarAfterTurn();
         if (terminalEventType === 'error') {
           return {
             ok: false,
@@ -3662,21 +3821,28 @@ export function renderGriotWebInterfaceHtml(): string {
           ok: true,
           conversationId: activeConversationId,
           content: accumulatedText,
-          interrupted: terminalEventType === 'interrupted' || generationCancelled,
+          interrupted: terminalEventType === 'interrupted' || isCancelled(),
           meta: streamMeta
         };
       } catch (err) {
-        if (generationCancelled || (activeStreamController && activeStreamController.signal.aborted)) {
+        if (isStale()) {
+          return {
+            ok: true,
+            interrupted: true,
+            cancelledBySessionChange: true,
+            conversationId: null,
+            content: accumulatedText
+          };
+        }
+        if (isCancelled()) {
           streamMeta.status = 'interrupted';
           if (accumulatedText) {
             botBody.innerHTML = renderSafeMarkdown(accumulatedText);
           } else {
-            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped.</em></p>';
+            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped before output arrived.</em></p>';
           }
           botMeta.textContent = formatMessageModelMeta(streamMeta) || 'Stopped';
-          if (activeConversationId) {
-            await loadConversationsSidebar();
-          }
+          await refreshSidebarAfterTurn();
           return {
             ok: true,
             conversationId: activeConversationId,
@@ -3689,9 +3855,7 @@ export function renderGriotWebInterfaceHtml(): string {
           streamMeta.status = 'interrupted';
           botBody.innerHTML = renderSafeMarkdown(accumulatedText);
           botMeta.textContent = (formatMessageModelMeta(streamMeta) || 'Interrupted') + ' • Connection interrupted';
-          if (activeConversationId) {
-            await loadConversationsSidebar();
-          }
+          await refreshSidebarAfterTurn();
           return {
             ok: false,
             conversationId: activeConversationId,
@@ -3704,11 +3868,23 @@ export function renderGriotWebInterfaceHtml(): string {
         renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
         return { ok: false, error: { code: 'NETWORK_ERROR', message: formatted.message } };
       } finally {
+        gen.reader = null;
         if (reader && typeof reader.releaseLock === 'function') {
           try { reader.releaseLock(); } catch {}
         }
-        activeStreamController = null;
-        updateGenerationControls(false, '');
+        if (typeof gen.cleanupStream === 'function') {
+          try { gen.cleanupStream(); } catch {}
+          gen.cleanupStream = null;
+        }
+        if (activeGeneration === gen) {
+          activeGeneration = null;
+        }
+        if (activeStreamController === gen.controller) {
+          activeStreamController = null;
+        }
+        if (!isStale()) {
+          updateGenerationControls(false, '');
+        }
       }
     }
 

@@ -35,11 +35,14 @@ import {
 type MockScenario =
   | 'normal_stream'
   | 'slow_abortable_stream'
+  | 'slow_before_first_event'
   | 'mid_stream_drop'
   | 'fallback_after_quota'
   | 'all_quota_429'
   | 'all_rate_limit_429'
-  | 'all_unavailable_503';
+  | 'all_unavailable_503'
+  | 'upstream_http_504'
+  | 'timeout_504';
 
 interface MockEl {
   id?: string;
@@ -285,6 +288,57 @@ describe('GRIOT AI — Stage 3 Live Chat Experience Suite', () => {
           JSON.stringify({ error: { message: 'The model is currently overloaded.' } }),
           { status: 503 }
         );
+      }
+
+      if (scenario === 'upstream_http_504') {
+        return new Response(
+          JSON.stringify({ error: { message: 'Upstream gateway timed out.' } }),
+          { status: 504 }
+        );
+      }
+
+      if (scenario === 'slow_before_first_event') {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            upstreamAbortObserved = true;
+          });
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const timer = setTimeout(() => {
+            const stream = new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      candidates: [{ content: { parts: [{ text: 'Late response' }] } }],
+                    })}\n\n`
+                  )
+                );
+                controller.close();
+              },
+            });
+            _resolve(new Response(stream, { status: 200 }));
+          }, 5000);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            upstreamAbortObserved = true;
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      }
+
+      if (scenario === 'timeout_504') {
+        // Trigger genuine ProviderManager stream inactivity timeout (504 PROVIDER_TIMEOUT)
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const abortErr = new Error('The operation was aborted.');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+          });
+        });
       }
 
       if (scenario === 'fallback_after_quota') {
@@ -557,6 +611,7 @@ describe('GRIOT AI — Stage 3 Live Chat Experience Suite', () => {
     // 4 & 5. Start a slow stream, attempt duplicate submission, then click Stop
     scenario = 'slow_abortable_stream';
     upstreamAbortObserved = false;
+    upstreamAttemptedUrls = [];
 
     const streamPromise = client.exports.sendAskGriot('Write a long essay about renewable energy');
 
@@ -587,6 +642,11 @@ describe('GRIOT AI — Stage 3 Live Chat Experience Suite', () => {
       upstreamAbortObserved,
       true,
       'Expected client Stop to propagate abort through GriotHttpServer to upstream provider fetch'
+    );
+    assert.equal(
+      upstreamAttemptedUrls.length,
+      1,
+      'Expected NO unintended fallback provider request after Stop cancellation'
     );
 
     // Verify conversation history preserved user message and was not corrupted
@@ -713,6 +773,48 @@ describe('GRIOT AI — Stage 3 Live Chat Experience Suite', () => {
     const unavailBubble = chatBox.children[chatBox.children.length - 1];
     assert.match(unavailBubble.children[1].innerHTML, /Provider Temporarily Unavailable/);
 
+    // 13d. Request timeout (504) -> clear timeout recovery guidance
+    const formatted504 = client.exports.formatChatError(
+      { code: 'PROVIDER_TIMEOUT', message: 'gemini stream timed out' },
+      504
+    );
+    assert.equal(formatted504.title, 'Request Timed Out');
+    assert.equal(formatted504.retryable, true);
+    assert.match(formatted504.message, /try again/i);
+
+    const timeoutClient = createStage3VmClient({
+      apiBaseUrl,
+      customFetch: async (input, init) => {
+        if (String(input).includes('/chat/completions')) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              apiVersion: 'v1',
+              requestId: 'req_timeout_504',
+              timestamp: new Date().toISOString(),
+              data: null,
+              error: {
+                code: 'PROVIDER_TIMEOUT',
+                message: 'gemini stream timed out after 30000ms',
+              },
+            }),
+            { status: 504 }
+          );
+        }
+        return globalThis.fetch(input, init);
+      },
+    });
+    timeoutClient.getEl('login-email').value = 'nadia@griot.africa';
+    timeoutClient.getEl('login-password').value = 'NadiaPass2026!';
+    assert.equal((await timeoutClient.exports.submitLogin()).ok, true);
+    const timeoutRes = await timeoutClient.exports.sendAskGriot('Test 504 timeout error');
+    assert.equal(timeoutRes.ok, false);
+    assert.equal(timeoutRes.status, 504);
+    const timeoutChatBox = timeoutClient.getEl('chat-messages');
+    const timeoutBubble = timeoutChatBox.children[timeoutChatBox.children.length - 1];
+    assert.match(timeoutBubble.children[1].innerHTML, /Request Timed Out/);
+    assert.equal(timeoutClient.exports.isCurrentlyGenerating(), false);
+
     // 14. Network failure recovery
     let failNetwork = true;
     const netClient = createStage3VmClient({
@@ -770,5 +872,280 @@ describe('GRIOT AI — Stage 3 Live Chat Experience Suite', () => {
     assert.equal(expiredClient.fetchLog.length, callsBefore, 'Expired JWT must not be sent');
     assert.equal(expiredClient.exports.getStoredSessionToken(), null);
     assert.equal(expiredClient.getEl('auth-modal-overlay').classList.contains('open'), true);
+  });
+
+  it('Stage 3.1 Regression — Defect 1: External abort listener persists past headers; logout & account switching cancel active SSE streams upstream without stale UI updates', async () => {
+    core.providerManager.resetCircuit();
+
+    // 1. Direct verification that griotFetch keeps external abort listener active AFTER HTTP 200 headers arrive
+    let fetchSignalPassed: AbortSignal | undefined;
+    const listenerClient = createStage3VmClient({
+      apiBaseUrl,
+      customFetch: async (input, init) => {
+        if (String(input).includes('/chat/completions')) {
+          fetchSignalPassed = init?.signal ?? undefined;
+          const stream = new ReadableStream<Uint8Array>({
+            start() {
+              // Keep open until cancelled/aborted
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+          });
+        }
+        return globalThis.fetch(input, init);
+      },
+    });
+    listenerClient.getEl('register-name').value = 'Abort Listener Check';
+    listenerClient.getEl('register-email').value = 'abort-listener@griot.africa';
+    listenerClient.getEl('register-password').value = 'AbortPass2026!';
+    listenerClient.getEl('register-confirm-password').value = 'AbortPass2026!';
+    assert.equal((await listenerClient.exports.submitRegister()).ok, true);
+
+    const extController = new AbortController();
+    const rawRes = (await listenerClient.exports.griotFetch('/chat/completions', {
+      method: 'POST',
+      rawStream: true,
+      signal: extController.signal,
+      body: { prompt: 'Keep stream open', stream: true },
+    })) as { ok: boolean; cleanupStream?: () => void };
+    assert.equal(rawRes.ok, true);
+    assert.ok(fetchSignalPassed, 'Expected fetch() to receive internal AbortSignal');
+    assert.equal(fetchSignalPassed.aborted, false);
+
+    // Abort external signal AFTER response headers have already resolved
+    extController.abort();
+    assert.equal(
+      fetchSignalPassed.aborted,
+      true,
+      'External abort listener must remain attached after HTTP 200 headers arrive'
+    );
+    if (typeof rawRes.cleanupStream === 'function') {
+      rawRes.cleanupStream();
+    }
+
+    // 2. Logout during active SSE streaming cancels browser reader, aborts upstream provider, triggers zero fallback, and prevents stale UI updates
+    const clientA = createStage3VmClient({ apiBaseUrl });
+    clientA.getEl('register-name').value = 'Logout Stream User';
+    clientA.getEl('register-email').value = 'logout-stream@griot.africa';
+    clientA.getEl('register-password').value = 'LogoutPass2026!';
+    clientA.getEl('register-confirm-password').value = 'LogoutPass2026!';
+    assert.equal((await clientA.exports.submitRegister()).ok, true);
+    await clientA.exports.switchMode('ask');
+
+    scenario = 'slow_abortable_stream';
+    upstreamAbortObserved = false;
+    upstreamAttemptedUrls = [];
+
+    const logoutStreamPromise = clientA.exports.sendAskGriot('Stream interrupted by sign out');
+    await new Promise((r) => setTimeout(r, 75));
+    assert.equal(clientA.exports.isCurrentlyGenerating(), true);
+
+    clientA.exports.signOutUser();
+    assert.equal(clientA.exports.isCurrentlyGenerating(), false);
+    assert.equal(clientA.exports.getActiveSession(), null);
+
+    const logoutStreamRes = await logoutStreamPromise;
+    assert.equal(logoutStreamRes.interrupted, true);
+
+    await new Promise((r) => setTimeout(r, 90));
+    assert.equal(
+      upstreamAbortObserved,
+      true,
+      'Expected signOutUser() during active SSE stream to propagate abort to upstream provider'
+    );
+    assert.equal(
+      upstreamAttemptedUrls.length,
+      1,
+      'Expected NO unintended fallback request when signing out mid-stream'
+    );
+    assert.equal(
+      clientA.getEl('chat-messages').innerHTML.includes('Part 1 of slow response'),
+      false,
+      'Stale chunks from pre-logout stream must not reappear in DOM after sign out'
+    );
+    assert.equal(
+      clientA.getEl('chat-messages').innerHTML.includes('Chunk 2'),
+      false,
+      'No subsequent chunks may update DOM after logout'
+    );
+
+    // 3. Account switching during active SSE streaming cancels Account A stream upstream and never leaks into Account B UI
+    const switchClient = createStage3VmClient({ apiBaseUrl });
+    switchClient.getEl('login-email').value = 'logout-stream@griot.africa';
+    switchClient.getEl('login-password').value = 'LogoutPass2026!';
+    assert.equal((await switchClient.exports.submitLogin()).ok, true);
+    await switchClient.exports.switchMode('ask');
+
+    scenario = 'slow_abortable_stream';
+    upstreamAbortObserved = false;
+    upstreamAttemptedUrls = [];
+
+    const switchStreamPromise = switchClient.exports.sendAskGriot('Account A active generation');
+    await new Promise((r) => setTimeout(r, 75));
+    assert.equal(switchClient.exports.isCurrentlyGenerating(), true);
+
+    // Switch directly into a new Account B session while Account A is mid-stream
+    switchClient.getEl('register-name').value = 'Switched Account B';
+    switchClient.getEl('register-email').value = 'switched-b@griot.africa';
+    switchClient.getEl('register-password').value = 'SwitchPass2026!';
+    switchClient.getEl('register-confirm-password').value = 'SwitchPass2026!';
+    const regBRes = await switchClient.exports.submitRegister();
+    assert.equal(regBRes.ok, true);
+
+    await switchStreamPromise;
+    await new Promise((r) => setTimeout(r, 90));
+    assert.equal(
+      upstreamAbortObserved,
+      true,
+      'Expected account switching during active SSE stream to abort previous upstream provider request'
+    );
+    assert.equal(
+      upstreamAttemptedUrls.length,
+      1,
+      'Expected NO fallback request when switching accounts mid-stream'
+    );
+    assert.equal(switchClient.exports.getActiveSession()?.user.email, 'switched-b@griot.africa');
+    assert.equal(switchClient.exports.getCachedConversations().length, 0);
+    assert.equal(
+      switchClient.getEl('chat-messages').innerHTML.includes('Part 1 of slow response'),
+      false,
+      'Previous account stream content must never render inside new account UI'
+    );
+  });
+
+  it('Stage 3.1 Regression — Defects 2, 3 & 4: Stable composer layout CSS, early Stop refreshes sidebar with no empty assistant row/fallback, and upstream HTTP 504 vs 503 classification', async () => {
+    core.providerManager.resetCircuit();
+
+    // Defect 2: Verify stable flex viewport CSS rules prevent vertical composer shift
+    const html = renderGriotWebInterfaceHtml();
+    assert.match(html, /\.ask-chat-panel\s*\{[^}]*height:\s*clamp\(/);
+    assert.match(html, /\.ask-chat-panel\s*\{[^}]*overflow:\s*hidden;/);
+    assert.match(html, /\.chat-messages\s*\{[^}]*flex:\s*1\s+1\s+0;/);
+    assert.match(html, /\.chat-messages\s*\{[^}]*min-height:\s*0;/);
+    assert.match(html, /\.chat-messages\s*\{[^}]*overflow-y:\s*auto;/);
+    assert.match(html, /\.chat-composer-wrap\s*\{[^}]*flex-shrink:\s*0;/);
+    assert.equal(
+      html.includes('min-height: 320px;\n      max-height: 560px;'),
+      false,
+      'Old growing min/max-height rule on .chat-messages must be removed'
+    );
+
+    // Defect 3: Early Stop BEFORE first SSE event refreshes sidebar immediately, persists user message, creates NO empty assistant row, and triggers NO fallback
+    const earlyStopClient = createStage3VmClient({ apiBaseUrl });
+    earlyStopClient.getEl('register-name').value = 'Early Stop User';
+    earlyStopClient.getEl('register-email').value = 'early-stop@griot.africa';
+    earlyStopClient.getEl('register-password').value = 'EarlyStop2026!';
+    earlyStopClient.getEl('register-confirm-password').value = 'EarlyStop2026!';
+    assert.equal((await earlyStopClient.exports.submitRegister()).ok, true);
+    await earlyStopClient.exports.switchMode('ask');
+
+    scenario = 'slow_before_first_event';
+    upstreamAbortObserved = false;
+    upstreamAttemptedUrls = [];
+
+    const earlyPrompt = 'Explain quantum error correction in full detail';
+    const earlyPromise = earlyStopClient.exports.sendAskGriot(earlyPrompt);
+
+    // Wait just enough for the request to hit the server and persist the conversation/user message,
+    // while the upstream provider has not yet emitted a single chunk (still blocked for 5s)
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(earlyStopClient.exports.stopAskGriot(), true);
+
+    const earlyRes = await earlyPromise;
+    assert.equal(earlyRes.ok, true);
+    assert.equal(earlyRes.interrupted, true);
+    assert.equal(earlyStopClient.exports.isCurrentlyGenerating(), false);
+
+    // Sidebar MUST already show the newly created conversation WITHOUT needing a page refresh
+    const sidebarConvs = earlyStopClient.exports.getCachedConversations();
+    assert.equal(
+      sidebarConvs.length,
+      1,
+      'Conversation created before early Stop must appear in sidebar immediately'
+    );
+    assert.match(sidebarConvs[0].title, /Explain quantum error correction/);
+    assert.equal(earlyStopClient.exports.getActiveConversationId(), sidebarConvs[0].id);
+
+    // Confirm persisted messages contain ONLY the user message (NO empty assistant message)
+    const earlyHist = await earlyStopClient.exports.loadConversationHistory(sidebarConvs[0].id);
+    assert.equal(earlyHist.ok, true);
+    const earlyMsgs = earlyHist.data?.messages || [];
+    assert.equal(earlyMsgs.length, 1, 'Early Stop before first chunk must not create an empty assistant message');
+    assert.equal(earlyMsgs[0].role, 'user');
+    assert.equal(earlyMsgs[0].content, earlyPrompt);
+
+    // Confirm upstream received abort and NO fallback request occurred
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(upstreamAbortObserved, true);
+    assert.equal(upstreamAttemptedUrls.length, 1, 'Early Stop must not trigger fallback models');
+
+    // Defect 3b: Early Stop BEFORE HTTP response headers even arrive (griotFetch returns USER_ABORTED)
+    // still refreshes the sidebar and adopts the server-persisted conversation immediately
+    const preHeaderClient = createStage3VmClient({
+      apiBaseUrl,
+      customFetch: async (input, init) => {
+        if (String(input).includes('/chat/completions')) {
+          // Persist the conversation on server side while holding response headers until client aborts
+          const realFetchPromise = globalThis.fetch(input, init);
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              realFetchPromise.catch(() => {});
+              const abortErr = new Error('Aborted before headers');
+              abortErr.name = 'AbortError';
+              reject(abortErr);
+            });
+          });
+        }
+        return globalThis.fetch(input, init);
+      },
+    });
+    preHeaderClient.getEl('register-name').value = 'PreHeader Stop User';
+    preHeaderClient.getEl('register-email').value = 'preheader-stop@griot.africa';
+    preHeaderClient.getEl('register-password').value = 'PreHeader2026!';
+    preHeaderClient.getEl('register-confirm-password').value = 'PreHeader2026!';
+    assert.equal((await preHeaderClient.exports.submitRegister()).ok, true);
+    await preHeaderClient.exports.switchMode('ask');
+
+    scenario = 'slow_before_first_event';
+    upstreamAbortObserved = false;
+    upstreamAttemptedUrls = [];
+
+    const preHeaderPromise = preHeaderClient.exports.sendAskGriot('Pre-header early stop topic');
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(preHeaderClient.exports.stopAskGriot(), true);
+    const preHeaderRes = await preHeaderPromise;
+    assert.equal(preHeaderRes.ok, true);
+    assert.equal(preHeaderRes.interrupted, true);
+    const preHeaderConvs = preHeaderClient.exports.getCachedConversations();
+    assert.equal(
+      preHeaderConvs.length,
+      1,
+      'Pre-header USER_ABORTED Stop must still refresh sidebar and show newly persisted conversation'
+    );
+    assert.match(preHeaderConvs[0].title, /Pre-header early stop topic/);
+    assert.equal(preHeaderClient.exports.getActiveConversationId(), preHeaderConvs[0].id);
+    const preHeaderHist = await preHeaderClient.exports.loadConversationHistory(preHeaderConvs[0].id);
+    assert.equal(preHeaderHist.data?.messages.length, 1);
+    assert.equal(preHeaderHist.data?.messages[0].role, 'user');
+
+    // Defect 4: Upstream HTTP 504 classifies as PROVIDER_TIMEOUT (504) and displays Request Timed Out; HTTP 503 stays Provider Temporarily Unavailable
+    core.providerManager.resetCircuit();
+    scenario = 'upstream_http_504';
+    const upstream504Res = await earlyStopClient.exports.sendAskGriot('Simulate upstream HTTP 504');
+    assert.equal(upstream504Res.ok, false);
+    assert.equal(upstream504Res.error?.code, 'PROVIDER_TIMEOUT');
+    const chatBox = earlyStopClient.getEl('chat-messages');
+    const bubble504 = chatBox.children[chatBox.children.length - 1];
+    assert.match(bubble504.children[1].innerHTML, /Request Timed Out/);
+
+    core.providerManager.resetCircuit();
+    scenario = 'all_unavailable_503';
+    const upstream503Res = await earlyStopClient.exports.sendAskGriot('Simulate upstream HTTP 503');
+    assert.equal(upstream503Res.ok, false);
+    assert.equal(upstream503Res.error?.code, 'PROVIDER_PROVIDER_UNAVAILABLE');
+    const bubble503 = chatBox.children[chatBox.children.length - 1];
+    assert.match(bubble503.children[1].innerHTML, /Provider Temporarily Unavailable/);
   });
 });

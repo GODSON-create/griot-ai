@@ -114,6 +114,15 @@ export function classifyHttpError(
       message: `${provider} ${isQuota ? 'quota exceeded' : 'rate limited'} (HTTP 429): ${snippet}`,
     });
   }
+  if (status === 504) {
+    return new ProviderError({
+      provider,
+      statusCode: 504,
+      category: 'timeout',
+      retryable: true,
+      message: `${provider} upstream request timed out (HTTP 504): ${snippet}`,
+    });
+  }
   if (status >= 500) {
     return new ProviderError({
       provider,

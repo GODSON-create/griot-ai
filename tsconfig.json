@@ -13,9 +13,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "types": [
+      "node"
+    ],
     "typeRoots": [
-      "./node_modules/@types",
-      "../DOT/dotlive/node_modules/@types"
+      "./node_modules/@types"
     ]
   },
   "include": [
