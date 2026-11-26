@@ -8,6 +8,51 @@ import type { GriotDatabase } from '../db/database.ts';
 import type { AuthContext, OrgRole, PermissionScope } from '../types/domain.ts';
 import { hashApiKey, verifyJwtToken } from './crypto.ts';
 
+export const ALL_VALID_PERMISSION_SCOPES: PermissionScope[] = [
+  'chat:write',
+  'conversations:read',
+  'conversations:write',
+  'conversations:delete',
+  'models:read',
+  'models:admin',
+  'files:read',
+  'files:write',
+  'knowledge:read',
+  'knowledge:write',
+  'builder:read',
+  'builder:write',
+  'usage:read',
+  'billing:write',
+  'org:read',
+  'org:admin',
+  'apikeys:manage',
+  'admin:observability',
+  'admin:platform',
+  'admin:support_investigate',
+];
+
+export const PRIVILEGED_ADMIN_SCOPES: PermissionScope[] = [
+  'org:admin',
+  'apikeys:manage',
+  'models:admin',
+  'billing:write',
+  'admin:observability',
+  'admin:platform',
+  'admin:support_investigate',
+];
+
+export const LOVABLE_APP_DEFAULT_SCOPES: PermissionScope[] = [
+  'chat:write',
+  'conversations:read',
+  'conversations:write',
+  'models:read',
+  'builder:read',
+  'builder:write',
+  'files:read',
+  'files:write',
+  'knowledge:read',
+];
+
 export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
   platform_admin: [
     'chat:write',
@@ -20,6 +65,8 @@ export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
     'files:write',
     'knowledge:read',
     'knowledge:write',
+    'builder:read',
+    'builder:write',
     'usage:read',
     'billing:write',
     'org:read',
@@ -39,6 +86,8 @@ export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
     'files:write',
     'knowledge:read',
     'knowledge:write',
+    'builder:read',
+    'builder:write',
     'usage:read',
     'billing:write',
     'org:read',
@@ -57,6 +106,8 @@ export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
     'files:write',
     'knowledge:read',
     'knowledge:write',
+    'builder:read',
+    'builder:write',
     'usage:read',
     'billing:write',
     'org:read',
@@ -74,6 +125,8 @@ export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
     'files:write',
     'knowledge:read',
     'knowledge:write',
+    'builder:read',
+    'builder:write',
     'usage:read',
     'org:read',
     'apikeys:manage',
@@ -87,10 +140,19 @@ export const ROLE_DEFAULT_SCOPES: Record<OrgRole, PermissionScope[]> = {
     'files:read',
     'files:write',
     'knowledge:read',
+    'builder:read',
+    'builder:write',
     'org:read',
   ],
   billing: ['usage:read', 'billing:write', 'org:read', 'models:read'],
-  viewer: ['conversations:read', 'models:read', 'knowledge:read', 'usage:read', 'org:read'],
+  viewer: [
+    'conversations:read',
+    'models:read',
+    'knowledge:read',
+    'builder:read',
+    'usage:read',
+    'org:read',
+  ],
   support_auditor: [
     'org:read',
     'usage:read',

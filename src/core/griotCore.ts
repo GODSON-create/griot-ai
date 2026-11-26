@@ -6,6 +6,7 @@
 // marked mock fallback) -> Response processing -> Usage accounting -> Logging.
 // ============================================================================
 
+import fs from 'node:fs';
 import { ObservabilityAndAdminService } from '../admin/observabilityService.ts';
 import { GuidedBuildEngine } from '../builder/guidedBuildEngine.ts';
 import { loadGriotConfig, type GriotConfig } from '../config/env.ts';
@@ -13,7 +14,7 @@ import {
   ConversationEngine,
   type ConversationMessageRecord,
 } from '../conversations/conversationEngine.ts';
-import { GriotDatabase } from '../db/database.ts';
+import { GriotDatabase, type PostgresSyncExecutor } from '../db/database.ts';
 import { CostOptimizationEngine } from '../economics/costOptimizer.ts';
 import { UsageAndEconomicsEngine } from '../economics/usageEngine.ts';
 import {
@@ -165,9 +166,14 @@ export class GriotCore {
   constructor(options?: {
     config?: Partial<GriotConfig>;
     fetchFn?: FetchFunction;
+    postgresExecutor?: PostgresSyncExecutor;
   }) {
     this.config = loadGriotConfig(options?.config);
-    this.database = new GriotDatabase(this.config.sqlitePath);
+    this.database = new GriotDatabase({
+      sqlitePath: this.config.sqlitePath,
+      databaseUrl: this.config.databaseUrl,
+      postgresExecutor: options?.postgresExecutor,
+    });
     this.audit = new AuditAndRetentionService(
       this.database,
       this.config.privateStorageDir
@@ -1169,6 +1175,44 @@ export class GriotCore {
       reachable: true,
       installedModelNames: status.installedModels.map((m) => m.name),
       activatedRegistryIds,
+    };
+  }
+
+  /**
+   * Verifies private storage directory availability and reports whether storage is durable
+   * or ephemeral container storage (without exposing internal filesystem paths).
+   */
+  public checkPrivateStorageHealth(): {
+    ready: boolean;
+    writable: boolean;
+    durable: boolean;
+    warning: string | null;
+  } {
+    let writable = false;
+    try {
+      if (!fs.existsSync(this.config.privateStorageDir)) {
+        fs.mkdirSync(this.config.privateStorageDir, { recursive: true });
+      }
+      fs.accessSync(
+        this.config.privateStorageDir,
+        fs.constants.R_OK | fs.constants.W_OK
+      );
+      writable = true;
+    } catch {
+      writable = false;
+    }
+
+    const durable = Boolean(this.config.storageDurable);
+    const warning =
+      !durable && this.config.env === 'production'
+        ? 'Private file storage is running on an ephemeral container filesystem; attach a persistent disk or durable storage volume and set GRIOT_STORAGE_DURABLE=true for uploaded file persistence.'
+        : null;
+
+    return {
+      ready: writable,
+      writable,
+      durable,
+      warning,
     };
   }
 

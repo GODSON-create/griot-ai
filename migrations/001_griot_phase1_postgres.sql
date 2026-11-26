@@ -1,16 +1,29 @@
 -- ============================================================================
--- GRIOT AI — PHASE 1 PRODUCTION DATABASE SCHEMA (PostgreSQL + pgvector)
--- Designed for Supabase / Managed PostgreSQL deployments across Avantage Group
+-- GRIOT AI — PRODUCTION DATABASE SCHEMA (PostgreSQL / Supabase)
+-- Safe, repeatable, idempotent migration for Supabase & Managed PostgreSQL
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector";
+
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS "vector";
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector extension not available in default schema; continuing with JSONB vector storage.';
+END
+$$;
+
+CREATE TABLE IF NOT EXISTS griot_schema_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS organisations (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  is_avantage_internal BOOLEAN NOT NULL DEFAULT FALSE,
+  is_avantage_internal INTEGER NOT NULL DEFAULT 0,
   access_model TEXT NOT NULL DEFAULT 'public_freemium',
   branding_mode TEXT NOT NULL DEFAULT 'griot_standalone',
   parent_group TEXT,
@@ -26,7 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   password_hash TEXT NOT NULL,
-  is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  is_platform_admin INTEGER NOT NULL DEFAULT 0,
   preferences_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'active',
   personal_org_id TEXT REFERENCES organisations(id),
@@ -104,7 +117,7 @@ CREATE TABLE IF NOT EXISTS billing_accounts (
 CREATE TABLE IF NOT EXISTS model_registry_overrides (
   model_id TEXT PRIMARY KEY,
   availability TEXT,
-  eligible BOOLEAN,
+  eligible INTEGER,
   input_pricing_per_1m NUMERIC(14, 6),
   cached_input_pricing_per_1m NUMERIC(14, 6),
   output_pricing_per_1m NUMERIC(14, 6),
@@ -172,6 +185,8 @@ CREATE TABLE IF NOT EXISTS files (
   expires_at TIMESTAMPTZ
 );
 
+CREATE INDEX IF NOT EXISTS idx_files_org ON files(org_id, uploaded_by_user_id);
+
 CREATE TABLE IF NOT EXISTS knowledge_bases (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
@@ -182,7 +197,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
   visibility TEXT NOT NULL DEFAULT 'organisation',
   allowed_roles_json JSONB NOT NULL DEFAULT '["platform_admin","owner","admin","member","developer"]'::jsonb,
   allowed_user_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-  embedding_model TEXT NOT NULL DEFAULT 'openai:text-embedding-3-small',
+  embedding_model TEXT NOT NULL DEFAULT 'local:deterministic-128',
   chunk_size INTEGER NOT NULL DEFAULT 600,
   chunk_overlap INTEGER NOT NULL DEFAULT 100,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -196,7 +211,7 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
   source_uri TEXT NOT NULL,
   title TEXT NOT NULL,
   mime_type TEXT NOT NULL DEFAULT 'text/plain',
-  permission_verified BOOLEAN NOT NULL DEFAULT TRUE,
+  permission_verified INTEGER NOT NULL DEFAULT 1,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   chunk_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'indexed',
@@ -211,7 +226,6 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   chunk_index INTEGER NOT NULL,
   content TEXT NOT NULL,
   token_count INTEGER NOT NULL,
-  embedding vector(1536),
   embedding_json JSONB NOT NULL,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -245,12 +259,14 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
   billable_cost_usd NUMERIC(14, 8) NOT NULL DEFAULT 0.0,
   cost_source TEXT NOT NULL,
   credits_breakdown_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-  cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
-  fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
+  cache_hit INTEGER NOT NULL DEFAULT 0,
+  fallback_used INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_usage_ledger_org_created ON usage_ledger(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_ledger_apikey ON usage_ledger(api_key_id, created_at);
 
 CREATE TABLE IF NOT EXISTS budget_alerts (
   id TEXT PRIMARY KEY,
@@ -277,6 +293,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org ON audit_logs(org_id, created_at);
 
 CREATE TABLE IF NOT EXISTS guided_projects (
   id TEXT PRIMARY KEY,
@@ -309,3 +327,8 @@ CREATE TABLE IF NOT EXISTS guided_projects (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_guided_projects_org_user ON guided_projects(org_id, user_id, updated_at);
+
+INSERT INTO griot_schema_migrations (version)
+VALUES ('001_griot_phase1_postgres')
+ON CONFLICT (version) DO NOTHING;

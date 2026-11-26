@@ -140,6 +140,8 @@ export type PermissionScope =
   | 'files:write'
   | 'knowledge:read'
   | 'knowledge:write'
+  | 'builder:read'
+  | 'builder:write'
   | 'usage:read'
   | 'billing:write'
   | 'org:read'

@@ -9,16 +9,25 @@ async function bootstrap(): Promise<void> {
   const core = new GriotCore();
   const localSync = await core.syncLocalOllamaModels();
   const server = new GriotHttpServer(core);
-  const port = await server.listen();
+  const actualPort = await server.listen();
+  const bound = server.getBoundAddress() ?? {
+    host: core.config.host,
+    port: actualPort,
+    family: 'IPv4',
+  };
 
   console.log(
     JSON.stringify({
       event: 'griot_ai_core_started',
       phase: 'v1_local_intelligence_and_guided_builder',
       env: core.config.env,
-      host: core.config.host,
-      port,
-      webInterfaceUrl: `http://${core.config.host}:${port}/`,
+      host: bound.host,
+      port: bound.port,
+      boundFamily: bound.family,
+      databaseBackend: core.database.getBackendType(),
+      storageDurable: core.config.storageDurable,
+      allowedOriginsCount: core.config.allowedOrigins.length,
+      webInterfaceUrl: `http://${bound.host}:${bound.port}/`,
       modelsRegistered: core.registry.listModels().length,
       localOllamaReachable: localSync.reachable,
       installedLocalModels: localSync.installedModelNames,

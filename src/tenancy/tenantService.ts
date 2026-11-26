@@ -9,7 +9,12 @@
 
 import type { GriotDatabase } from '../db/database.ts';
 import type { AuditAndRetentionService } from '../security/auditAndRetention.ts';
-import { ROLE_DEFAULT_SCOPES } from '../security/auth.ts';
+import {
+  ALL_VALID_PERMISSION_SCOPES,
+  AuthError,
+  PRIVILEGED_ADMIN_SCOPES,
+  ROLE_DEFAULT_SCOPES,
+} from '../security/auth.ts';
 import {
   decryptSecretVault,
   encryptSecretVault,
@@ -543,6 +548,7 @@ export class TenantService {
     createdByUserId: string;
     name: string;
     scopes?: PermissionScope[];
+    allowPrivilegedScopes?: boolean;
     spendingLimitUsd?: number | null;
     rateLimitRpm?: number;
     expiresAt?: string | null;
@@ -560,12 +566,32 @@ export class TenantService {
     const id = generateId('key');
     const createdAt = new Date().toISOString();
     const { rawKey, keyPrefix, keyHash } = generateApiKey();
-    const scopes: PermissionScope[] = params.scopes ?? [
-      'chat:write',
-      'conversations:read',
-      'conversations:write',
-      'models:read',
-    ];
+    const requestedScopes: PermissionScope[] =
+      params.scopes && params.scopes.length > 0
+        ? Array.from(new Set(params.scopes))
+        : [
+            'chat:write',
+            'conversations:read',
+            'conversations:write',
+            'models:read',
+            'builder:read',
+            'builder:write',
+          ];
+
+    for (const s of requestedScopes) {
+      if (!ALL_VALID_PERMISSION_SCOPES.includes(s)) {
+        throw new Error(`Invalid permission scope requested for API key: '${s}'.`);
+      }
+      if (!params.allowPrivilegedScopes && PRIVILEGED_ADMIN_SCOPES.includes(s)) {
+        throw new AuthError(
+          `Administrative scope '${s}' cannot be granted to a standard application API key. Application keys must follow principle of least privilege.`,
+          403,
+          'FORBIDDEN_PRIVILEGED_API_KEY_SCOPE'
+        );
+      }
+    }
+
+    const scopes = requestedScopes;
     const rateLimitRpm = params.rateLimitRpm ?? 60;
 
     this.database.db
@@ -612,6 +638,129 @@ export class TenantService {
       rateLimitRpm,
       createdAt,
     };
+  }
+
+  /**
+   * Secure Session Token Exchange for Trusted External Frontends (e.g. Lovable / Partner Apps).
+   * Requires an authenticated application API key bound to an organisation.
+   * Resolves or auto-provisions an organisation member for the external user identity
+   * and returns a short-lived user-scoped GRIOT JWT so browser requests carry a verified
+   * user identity (`Authorization: Bearer <user_jwt>`) and GRIOT never trusts an unverified
+   * `userId` parameter in request payloads.
+   */
+  public exchangeExternalUserSession(params: {
+    orgId: string;
+    workspaceId?: string | null;
+    apiKeyId: string;
+    externalUserId: string;
+    email?: string;
+    displayName?: string;
+  }): {
+    user: {
+      id: string;
+      email: string;
+      displayName: string;
+    };
+    orgId: string;
+    workspaceId: string | null;
+    accessToken: string;
+    expiresInSeconds: number;
+  } {
+    const cleanExternalId = params.externalUserId.trim();
+    if (!cleanExternalId || cleanExternalId.length > 128) {
+      throw new Error('externalUserId is required (1..128 chars) for session exchange.');
+    }
+
+    const normalizedEmail = (
+      params.email && params.email.includes('@')
+        ? params.email.toLowerCase().trim()
+        : `ext-${cleanExternalId.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase()}@${params.orgId.toLowerCase()}.griot.internal`
+    );
+    const displayName = (params.displayName || cleanExternalId).trim().slice(0, 120);
+
+    return this.database.transaction(() => {
+      let existingUser = this.database.db
+        .prepare(`SELECT * FROM users WHERE email = ?`)
+        .get(normalizedEmail) as Record<string, unknown> | undefined;
+
+      let userId: string;
+      if (!existingUser) {
+        userId = generateId('usr');
+        const createdAt = new Date().toISOString();
+        const unusablePasswordHash = hashPassword(generateId('ext_secret_pw'));
+        this.database.db
+          .prepare(
+            `INSERT INTO users (
+              id, email, display_name, password_hash, is_platform_admin,
+              preferences_json, status, personal_org_id, spending_limit_usd,
+              retention_days, created_at
+            ) VALUES (?, ?, ?, ?, 0, ?, 'active', ?, NULL, 365, ?)`
+          )
+          .run(
+            userId,
+            normalizedEmail,
+            displayName,
+            unusablePasswordHash,
+            JSON.stringify({ externalUserId: cleanExternalId }),
+            params.orgId,
+            createdAt
+          );
+      } else {
+        if (existingUser.status !== 'active') {
+          throw new AuthError('User account is inactive or suspended.', 403, 'USER_INACTIVE');
+        }
+        userId = String(existingUser.id);
+      }
+
+      // Ensure user is a member of this organisation (never cross-tenant)
+      const existingMember = this.database.db
+        .prepare(`SELECT id, role FROM organisation_members WHERE org_id = ? AND user_id = ?`)
+        .get(params.orgId, userId) as Record<string, unknown> | undefined;
+
+      if (!existingMember) {
+        this.addMember({
+          orgId: params.orgId,
+          userId,
+          role: 'member',
+        });
+      }
+
+      const expiresInSeconds = 3600; // 1 hour short-lived user session token
+      const accessToken = signJwtToken(
+        {
+          sub: userId,
+          orgId: params.orgId,
+          workspaceId: params.workspaceId ?? null,
+          role: existingMember ? (String(existingMember.role) as OrgRole) : 'member',
+          scopes: ROLE_DEFAULT_SCOPES.member,
+        },
+        this.jwtSecret,
+        expiresInSeconds
+      );
+
+      this.audit.record({
+        orgId: params.orgId,
+        actorUserId: userId,
+        actorApiKeyId: params.apiKeyId,
+        action: 'auth.session_exchanged',
+        resourceType: 'user_session',
+        resourceId: userId,
+        outcome: 'success',
+        details: { externalUserId: cleanExternalId, email: normalizedEmail },
+      });
+
+      return {
+        user: {
+          id: userId,
+          email: normalizedEmail,
+          displayName,
+        },
+        orgId: params.orgId,
+        workspaceId: params.workspaceId ?? null,
+        accessToken,
+        expiresInSeconds,
+      };
+    });
   }
 
   public revokeApiKey(orgId: string, apiKeyId: string, actorUserId: string): boolean {

@@ -11,7 +11,12 @@ import type {
   ProjectCategory,
   TechnicalExperienceLevel,
 } from '../builder/toolRegistry.ts';
-import { inspectConfiguredCredentials } from '../config/env.ts';
+import {
+  inspectConfiguredCredentials,
+  isOriginAllowed,
+  resolveBindHost,
+  resolveListenPort,
+} from '../config/env.ts';
 import type { GriotCore } from '../core/griotCore.ts';
 import { LocalQueueLimitError } from '../economics/concurrencyLimiter.ts';
 import { BudgetExceededError } from '../economics/usageEngine.ts';
@@ -29,6 +34,7 @@ import type {
   ModalityType,
   ModelAvailability,
   ModelCapability,
+  PermissionScope,
   ProviderName,
   UserPreferences,
 } from '../types/domain.ts';
@@ -47,12 +53,23 @@ export interface ApiEnvelope<T = unknown> {
   } | null;
 }
 
+export interface BoundServerAddress {
+  host: string;
+  port: number;
+  family: string;
+}
+
 export class GriotHttpServer {
   private readonly core: GriotCore;
   private server: http.Server | null = null;
+  private boundAddress: BoundServerAddress | null = null;
 
   constructor(core: GriotCore) {
     this.core = core;
+  }
+
+  public getBoundAddress(): BoundServerAddress | null {
+    return this.boundAddress;
   }
 
   public createNodeServer(): http.Server {
@@ -60,8 +77,13 @@ export class GriotHttpServer {
       const requestId = generateId('api');
       res.setHeader('X-Griot-Api-Version', 'v1');
       res.setHeader('X-Griot-Request-Id', requestId);
+      res.setHeader('Vary', 'Origin');
 
       try {
+        const isPreflightHandled = this.applyCorsPolicy(req, res);
+        if (isPreflightHandled) {
+          return;
+        }
         await this.routeRequest(req, res, requestId);
       } catch (err) {
         this.sendError(res, requestId, err);
@@ -70,13 +92,101 @@ export class GriotHttpServer {
     return this.server;
   }
 
-  public async listen(port = this.core.config.port, host = this.core.config.host): Promise<number> {
+  /**
+   * Enforces explicit allowed-origin CORS policy (never wildcard `*` on authenticated routes)
+   * and responds to OPTIONS preflight requests with 204 No Content.
+   */
+  private applyCorsPolicy(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+    const rawOrigin = req.headers['origin'];
+    const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
+    const method = (req.method || 'GET').toUpperCase();
+
+    if (origin && origin.trim().length > 0) {
+      const cleanOrigin = origin.trim();
+      if (!isOriginAllowed(cleanOrigin, this.core.config.allowedOrigins)) {
+        throw new AuthError(
+          `CORS policy blocked request from unapproved origin '${cleanOrigin}'.`,
+          403,
+          'CORS_ORIGIN_DENIED'
+        );
+      }
+
+      res.setHeader('Access-Control-Allow-Origin', cleanOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+      );
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type, X-Griot-Api-Key, X-Griot-Org-Id, X-Griot-Workspace-Id'
+      );
+      res.setHeader(
+        'Access-Control-Expose-Headers',
+        'X-Griot-Api-Version, X-Griot-Request-Id'
+      );
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return true;
+    }
+
+    return false;
+  }
+
+  private assertNoSpoofedUserId(
+    auth: AuthContext,
+    body: Record<string, unknown>
+  ): void {
+    if (
+      typeof body.userId === 'string' &&
+      body.userId.trim().length > 0 &&
+      body.userId.trim() !== auth.userId
+    ) {
+      throw new AuthError(
+        'Security policy violation: GRIOT does not trust an unverified client-supplied userId that differs from the authenticated identity.',
+        403,
+        'UNVERIFIED_USER_ID_REJECTED'
+      );
+    }
+  }
+
+  public async listen(port?: number, host?: string): Promise<number> {
     const srv = this.server ?? this.createNodeServer();
+    const effectiveHost = resolveBindHost(
+      this.core.config.env,
+      host ?? this.core.config.host
+    );
+    const effectivePort =
+      port !== undefined
+        ? resolveListenPort({
+            envPort: this.core.config.env === 'production' ? process.env.PORT : undefined,
+            overridePort: port,
+          })
+        : resolveListenPort({
+            envPort: process.env.PORT,
+            griotPort: process.env.GRIOT_PORT,
+            overridePort: this.core.config.port,
+          });
+
     return new Promise((resolve, reject) => {
       srv.once('error', reject);
-      srv.listen(port, host, () => {
+      srv.listen(effectivePort, effectiveHost, () => {
         const addr = srv.address();
-        const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+        const actualHost =
+          typeof addr === 'object' && addr ? addr.address : effectiveHost;
+        const actualPort =
+          typeof addr === 'object' && addr ? addr.port : effectivePort;
+        const actualFamily =
+          typeof addr === 'object' && addr ? addr.family : 'IPv4';
+        this.boundAddress = {
+          host: actualHost,
+          port: actualPort,
+          family: actualFamily,
+        };
         resolve(actualPort);
       });
     });
@@ -85,7 +195,10 @@ export class GriotHttpServer {
   public async close(): Promise<void> {
     if (!this.server) return;
     return new Promise((resolve) => {
-      this.server!.close(() => resolve());
+      this.server!.close(() => {
+        this.boundAddress = null;
+        resolve();
+      });
     });
   }
 
@@ -241,9 +354,16 @@ export class GriotHttpServer {
 
     if (method === 'GET' && pathname === '/api/v1/health') {
       const models = this.core.registry.listModels();
+      const availableModels = models.filter((m) => m.availability === 'available');
       const credentialsSummary = inspectConfiguredCredentials(this.core.config);
-      this.sendJson(res, 200, requestId, {
-        status: 'healthy',
+      const dbHealth = this.core.database.checkHealth();
+      const storageHealth = this.core.checkPrivateStorageHealth();
+      const ollamaStatus = await this.core.providerManager.inspectLocalOllamaStatus(1200);
+
+      const overallHealthy = dbHealth.ready && storageHealth.ready;
+
+      this.sendJson(res, overallHealthy ? 200 : 503, requestId, {
+        status: overallHealthy ? 'healthy' : 'degraded',
         service: 'griot-ai-core',
         phase: 1,
         environment: this.core.config.env,
@@ -256,8 +376,27 @@ export class GriotHttpServer {
           public: 'FREEMIUM',
           enterprise: 'SHARED_INFRASTRUCTURE_STRICT_ISOLATION',
         },
+        readiness: {
+          backend: {
+            ready: true,
+            environment: this.core.config.env,
+            mockFallbackEnabled: this.core.config.allowMockProvidersWhenUnconfigured,
+          },
+          database: dbHealth,
+          privateStorage: storageHealth,
+          ollama: {
+            reachable: ollamaStatus.apiReachable,
+            installedModelsCount: ollamaStatus.installedModels.length,
+            installedModels: ollamaStatus.installedModels.map((m) => m.name),
+          },
+          models: {
+            ready: availableModels.length > 0,
+            registeredCount: models.length,
+            availableCount: availableModels.length,
+          },
+        },
         registeredModelsCount: models.length,
-        availableModelsCount: models.filter((m) => m.availability === 'available').length,
+        availableModelsCount: availableModels.length,
         providersConfigured: credentialsSummary,
       });
       return;
@@ -317,6 +456,34 @@ export class GriotHttpServer {
     }
 
     const auth = this.requireAuth(req);
+
+    // 2b. Authenticated Application Session Exchange for Trusted External Frontends (e.g. Lovable)
+    if (method === 'POST' && pathname === '/api/v1/auth/session-exchange') {
+      if (auth.authType !== 'api_key' || !auth.apiKeyId) {
+        throw new AuthError(
+          'Session exchange requires an active application API key (X-Griot-Api-Key).',
+          403,
+          'API_KEY_REQUIRED_FOR_SESSION_EXCHANGE'
+        );
+      }
+      this.core.authService.requireScope(auth, 'chat:write');
+      const body = await this.readJsonBody(req);
+      const externalUserId = String(body.externalUserId || '').trim();
+      const email = typeof body.email === 'string' ? body.email : undefined;
+      const displayName =
+        typeof body.displayName === 'string' ? body.displayName : undefined;
+
+      const exchanged = this.core.tenantService.exchangeExternalUserSession({
+        orgId: auth.orgId,
+        workspaceId: auth.workspaceId,
+        apiKeyId: auth.apiKeyId,
+        externalUserId,
+        email,
+        displayName,
+      });
+      this.sendJson(res, 200, requestId, exchanged);
+      return;
+    }
 
     // 3. Identity & Multi-Organisation Membership / User Preferences Endpoints
     if (method === 'GET' && pathname === '/api/v1/users/me/organisations') {
@@ -396,12 +563,21 @@ export class GriotHttpServer {
       this.core.authService.requireScope(auth, 'apikeys:manage');
       const body = await this.readJsonBody(req);
       const name = String(body.name || 'API Key').trim();
+      const scopes = Array.isArray(body.scopes)
+        ? (body.scopes.map(String) as PermissionScope[])
+        : undefined;
+      const allowPrivilegedScopes =
+        Boolean(body.allowPrivilegedScopes) &&
+        (auth.role === 'owner' || auth.role === 'admin' || auth.isPlatformAdmin);
+
       const created = this.core.tenantService.createApiKey({
         orgId: auth.orgId,
         workspaceId:
           typeof body.workspaceId === 'string' ? body.workspaceId : auth.workspaceId,
         createdByUserId: auth.userId,
         name,
+        scopes,
+        allowPrivilegedScopes,
         spendingLimitUsd:
           typeof body.spendingLimitUsd === 'number' ? body.spendingLimitUsd : null,
         rateLimitRpm: typeof body.rateLimitRpm === 'number' ? body.rateLimitRpm : 60,
@@ -516,6 +692,7 @@ export class GriotHttpServer {
     if (method === 'POST' && pathname === '/api/v1/conversations') {
       this.core.authService.requireScope(auth, 'conversations:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const conv = this.core.conversationEngine.createConversation({
         auth,
         title: typeof body.title === 'string' ? body.title : undefined,
@@ -805,6 +982,7 @@ export class GriotHttpServer {
 
     // 12. Guided Builder Endpoints ("BUILD WITH GRIOT")
     if (method === 'GET' && pathname === '/api/v1/builder/tools') {
+      this.core.authService.requireScope(auth, 'builder:read');
       this.sendJson(res, 200, requestId, {
         tools: this.core.guidedBuildEngine.toolRegistry.listTools(),
       });
@@ -812,7 +990,9 @@ export class GriotHttpServer {
     }
 
     if (method === 'POST' && pathname === '/api/v1/builder/tools/recommend') {
+      this.core.authService.requireScope(auth, 'builder:read');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const recommendation = this.core.guidedBuildEngine.toolRegistry.recommendTool({
         projectCategory: (String(body.projectCategory || 'web_application') as ProjectCategory),
         technicalExperience: (String(
@@ -827,7 +1007,9 @@ export class GriotHttpServer {
     }
 
     if (method === 'POST' && pathname === '/api/v1/builder/projects') {
+      this.core.authService.requireScope(auth, 'builder:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const project = await this.core.guidedBuildEngine.startProject({
         auth,
         ideaDescription: String(body.ideaDescription || ''),
@@ -853,6 +1035,7 @@ export class GriotHttpServer {
     }
 
     if (method === 'GET' && pathname === '/api/v1/builder/projects') {
+      this.core.authService.requireScope(auth, 'builder:read');
       const projects = this.core.guidedBuildEngine.listProjects(auth);
       this.sendJson(res, 200, requestId, { projects });
       return;
@@ -860,6 +1043,7 @@ export class GriotHttpServer {
 
     const builderProjMatch = pathname.match(/^\/api\/v1\/builder\/projects\/([^/]+)$/);
     if (method === 'GET' && builderProjMatch) {
+      this.core.authService.requireScope(auth, 'builder:read');
       const project = this.core.guidedBuildEngine.getProject(
         builderProjMatch[1],
         auth
@@ -872,7 +1056,9 @@ export class GriotHttpServer {
       /^\/api\/v1\/builder\/projects\/([^/]+)\/requirements$/
     );
     if (method === 'PATCH' && builderReqMatch) {
+      this.core.authService.requireScope(auth, 'builder:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const project = await this.core.guidedBuildEngine.refineRequirementsAndPlan({
         projectId: builderReqMatch[1],
         auth,
@@ -904,7 +1090,9 @@ export class GriotHttpServer {
       /^\/api\/v1\/builder\/projects\/([^/]+)\/detail-level$/
     );
     if (method === 'PATCH' && builderDetailMatch) {
+      this.core.authService.requireScope(auth, 'builder:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const project = this.core.guidedBuildEngine.setDetailLevel({
         projectId: builderDetailMatch[1],
         auth,
@@ -918,7 +1106,9 @@ export class GriotHttpServer {
       /^\/api\/v1\/builder\/projects\/([^/]+)\/submit-result$/
     );
     if (method === 'POST' && builderResultMatch) {
+      this.core.authService.requireScope(auth, 'builder:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const project = this.core.guidedBuildEngine.submitStepResult({
         projectId: builderResultMatch[1],
         auth,
@@ -938,7 +1128,9 @@ export class GriotHttpServer {
       /^\/api\/v1\/builder\/projects\/([^/]+)\/report-error$/
     );
     if (method === 'POST' && builderErrorMatch) {
+      this.core.authService.requireScope(auth, 'builder:write');
       const body = await this.readJsonBody(req);
+      this.assertNoSpoofedUserId(auth, body);
       const project = this.core.guidedBuildEngine.reportStepError({
         projectId: builderErrorMatch[1],
         auth,
@@ -977,6 +1169,7 @@ export class GriotHttpServer {
     auth: AuthContext,
     body: Record<string, unknown>
   ): Promise<void> {
+    this.assertNoSpoofedUserId(auth, body);
     const stream = Boolean(body.stream);
     const chatReq = {
       auth,
