@@ -668,12 +668,20 @@ export class GriotHttpServer {
       const capability = parsedUrl.searchParams.get('capability') as ModelCapability | null;
       const modality = parsedUrl.searchParams.get('modality') as ModalityType | null;
 
-      const models = this.core.registry.listModels({
-        provider: provider || undefined,
-        onlyAvailable,
-        requiredCapabilities: capability ? [capability] : undefined,
-        requiredInputModalities: modality ? [modality] : undefined,
-      });
+      const models = this.core.registry
+        .listModels({
+          provider: provider || undefined,
+          onlyAvailable,
+          requiredCapabilities: capability ? [capability] : undefined,
+          requiredInputModalities: modality ? [modality] : undefined,
+        })
+        .map((m) => ({
+          ...m,
+          providerAvailable: this.core.providerManager.isProviderAvailable(
+            m.provider,
+            auth.orgId
+          ),
+        }));
       this.sendJson(res, 200, requestId, { models });
       return;
     }
@@ -793,7 +801,7 @@ export class GriotHttpServer {
       }
       if (method === 'POST') {
         const body = await this.readJsonBody(req);
-        await this.handleChatExecution(res, requestId, auth, {
+        await this.handleChatExecution(req, res, requestId, auth, {
           ...body,
           conversationId: convId,
           endpointPath: pathname,
@@ -805,7 +813,7 @@ export class GriotHttpServer {
     // 7. Unified Chat Completions Endpoint (Sync + SSE Streaming)
     if (method === 'POST' && pathname === '/api/v1/chat/completions') {
       const body = await this.readJsonBody(req);
-      await this.handleChatExecution(res, requestId, auth, {
+      await this.handleChatExecution(req, res, requestId, auth, {
         ...body,
         endpointPath: pathname,
       });
@@ -1194,7 +1202,58 @@ export class GriotHttpServer {
     throw new Error(`Route '${method} ${pathname}' not found.`);
   }
 
+  private classifyErrorForApi(err: unknown): {
+    statusCode: number;
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+    retryable: boolean;
+    provider?: string;
+  } {
+    let statusCode = 500;
+    let code = 'INTERNAL_ERROR';
+    let message = err instanceof Error ? err.message : 'Unexpected server error';
+    let details: Record<string, unknown> | undefined;
+    let retryable = false;
+    let provider: string | undefined;
+
+    if (err instanceof AuthError) {
+      statusCode = err.statusCode;
+      code = err.code;
+      retryable = statusCode === 429;
+    } else if (err instanceof LocalQueueLimitError) {
+      statusCode = err.statusCode;
+      code = err.code;
+      retryable = true;
+    } else if (err instanceof BudgetExceededError) {
+      statusCode = err.statusCode;
+      code = err.code;
+      details = { scope: err.scope };
+    } else if (err instanceof RoutingConstraintError) {
+      statusCode = err.statusCode;
+      code = err.code;
+      details = err.details;
+    } else if (err instanceof ProviderError) {
+      statusCode = err.statusCode;
+      code = `PROVIDER_${err.category.toUpperCase()}`;
+      details = { provider: err.provider, retryable: err.retryable };
+      retryable = err.retryable;
+      provider = err.provider;
+    } else if (/not found/i.test(message)) {
+      statusCode = 404;
+      code = 'NOT_FOUND';
+    } else if (
+      /invalid|unsupported|empty|exceeds|cannot|rejected|required|malformed/i.test(message)
+    ) {
+      statusCode = 400;
+      code = 'VALIDATION_ERROR';
+    }
+
+    return { statusCode, code, message, details, retryable, provider };
+  }
+
   private async handleChatExecution(
+    req: http.IncomingMessage,
     res: http.ServerResponse,
     requestId: string,
     auth: AuthContext,
@@ -1202,6 +1261,15 @@ export class GriotHttpServer {
   ): Promise<void> {
     this.assertNoSpoofedUserId(auth, body);
     const stream = Boolean(body.stream);
+    const requestAbortController = new AbortController();
+    const onClientClose = () => {
+      if (!res.writableEnded) {
+        requestAbortController.abort();
+      }
+    };
+    req.on('aborted', onClientClose);
+    res.on('close', onClientClose);
+
     const chatReq = {
       auth,
       productModule:
@@ -1243,24 +1311,74 @@ export class GriotHttpServer {
           ? ('json_object' as const)
           : ('text' as const),
       tools: Array.isArray(body.tools) ? body.tools : undefined,
+      abortSignal: requestAbortController.signal,
     };
 
-    if (!stream) {
-      const result = await this.core.executeChat(chatReq);
-      this.sendJson(res, 200, requestId, result);
-      return;
-    }
+    try {
+      if (!stream) {
+        const result = await this.core.executeChat(chatReq);
+        this.sendJson(res, 200, requestId, result);
+        return;
+      }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    });
+      let sseStarted = false;
+      let lastConversationId: string | null = chatReq.conversationId ?? null;
 
-    for await (const event of this.core.streamChat(chatReq)) {
-      res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      try {
+        for await (const event of this.core.streamChat(chatReq)) {
+          if (event.conversationId) {
+            lastConversationId = event.conversationId;
+          }
+          if (!sseStarted) {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+            });
+            sseStarted = true;
+          }
+          if (res.writableEnded || res.destroyed) {
+            break;
+          }
+          res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+
+        if (sseStarted && !res.writableEnded && !res.destroyed) {
+          res.write(`event: done\ndata: [DONE]\n\n`);
+          res.end();
+        } else if (!sseStarted && !res.writableEnded && !res.destroyed) {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          });
+          res.write(`event: done\ndata: [DONE]\n\n`);
+          res.end();
+        }
+      } catch (err) {
+        if (!sseStarted) {
+          throw err;
+        }
+        if (!res.writableEnded && !res.destroyed) {
+          const classified = this.classifyErrorForApi(err);
+          const safeErrorEvent = {
+            type: 'error',
+            requestId,
+            conversationId: lastConversationId,
+            error: classified.message,
+            errorCode: classified.code,
+            statusCode: classified.statusCode,
+            retryable: classified.retryable,
+            provider: classified.provider,
+          };
+          res.write(`event: error\ndata: ${JSON.stringify(safeErrorEvent)}\n\n`);
+          res.write(`event: done\ndata: [DONE]\n\n`);
+          res.end();
+        }
+      }
+    } finally {
+      req.off('aborted', onClientClose);
+      res.off('close', onClientClose);
     }
-    res.write(`event: done\ndata: [DONE]\n\n`);
-    res.end();
   }
 }

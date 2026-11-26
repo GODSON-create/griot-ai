@@ -274,8 +274,56 @@ export function renderGriotWebInterfaceHtml(): string {
 
     .ask-layout {
       display: grid;
-      grid-template-columns: 260px 1fr;
+      grid-template-columns: 280px 1fr;
       gap: 1.25rem;
+      align-items: start;
+    }
+
+    .ask-sidebar {
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 150px);
+      min-height: 460px;
+    }
+
+    .conv-sidebar-scroll {
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 0.15rem;
+    }
+
+    .ask-chat-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 540px;
+      max-height: calc(100vh - 150px);
+    }
+
+    .ask-chat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.9rem;
+      margin-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border-neutral);
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
+
+    .ask-controls-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .ask-select-compact {
+      width: auto;
+      max-width: 240px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.8rem;
+      border-radius: 10px;
+      background: rgba(12, 12, 18, 0.9);
     }
 
     .workspace-grid {
@@ -288,17 +336,74 @@ export function renderGriotWebInterfaceHtml(): string {
       .ask-layout, .workspace-grid {
         grid-template-columns: 1fr;
       }
+      .ask-sidebar {
+        max-height: 260px;
+        min-height: auto;
+      }
+      .ask-chat-panel {
+        max-height: none;
+        min-height: 460px;
+      }
     }
 
     .chat-messages {
+      flex: 1;
       min-height: 320px;
-      max-height: 490px;
+      max-height: 560px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
-      padding: 0.5rem;
-      margin-bottom: 1.1rem;
+      gap: 1.05rem;
+      padding: 0.65rem 0.5rem 1rem;
+      margin-bottom: 0.9rem;
+      width: 100%;
+      max-width: 820px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .chat-empty-state {
+      margin: auto;
+      text-align: center;
+      padding: 2rem 1.25rem;
+      max-width: 560px;
+    }
+
+    .chat-empty-state h3 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.45rem;
+      color: var(--text-primary);
+    }
+
+    .chat-empty-state p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.2rem;
+    }
+
+    .chat-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.55rem;
+    }
+
+    .chat-suggestion-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-neutral);
+      color: var(--text-secondary);
+      border-radius: 999px;
+      padding: 0.48rem 0.9rem;
+      font-size: 0.81rem;
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    }
+
+    .chat-suggestion-btn:hover {
+      border-color: var(--accent-amber);
+      color: var(--text-primary);
+      background: rgba(255, 107, 43, 0.1);
     }
 
     .msg-bubble {
@@ -306,31 +411,224 @@ export function renderGriotWebInterfaceHtml(): string {
       border-radius: 16px;
       max-width: 86%;
       font-size: 0.94rem;
-      white-space: pre-wrap;
+      line-height: 1.62;
+      word-break: break-word;
     }
 
     .msg-user {
       align-self: flex-end;
       background: linear-gradient(135deg, rgba(255, 107, 43, 0.24), rgba(245, 158, 11, 0.18));
       border: 1px solid var(--border-subtle);
+      white-space: pre-wrap;
     }
 
     .msg-assistant {
       align-self: flex-start;
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(255, 255, 255, 0.035);
       border: 1px solid var(--border-neutral);
+      max-width: 92%;
+    }
+
+    .msg-assistant.msg-error {
+      border-color: rgba(239, 68, 68, 0.42);
+      background: rgba(239, 68, 68, 0.09);
+    }
+
+    .msg-role-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .msg-body p {
+      margin: 0 0 0.65rem;
+    }
+
+    .msg-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .msg-body h1, .msg-body h2, .msg-body h3 {
+      margin: 0.8rem 0 0.4rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.3;
+    }
+
+    .msg-body h1 { font-size: 1.18rem; }
+    .msg-body h2 { font-size: 1.07rem; }
+    .msg-body h3 { font-size: 0.98rem; }
+
+    .msg-body ul, .msg-body ol {
+      margin: 0.4rem 0 0.7rem 1.35rem;
+    }
+
+    .msg-body li {
+      margin-bottom: 0.25rem;
+    }
+
+    .msg-body blockquote {
+      border-left: 3px solid var(--accent-amber);
+      padding-left: 0.85rem;
+      margin: 0.55rem 0;
+      color: var(--text-secondary);
+    }
+
+    .msg-body a {
+      color: #fdba74;
+      text-decoration: underline;
+    }
+
+    .msg-body code {
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 0.84em;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.12rem 0.36rem;
+      border-radius: 6px;
+      color: #fed7aa;
+    }
+
+    .code-block-wrap {
+      margin: 0.7rem 0;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #07070b;
+      overflow: hidden;
+    }
+
+    .code-block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.38rem 0.75rem;
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+    }
+
+    .code-copy-btn {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--border-neutral);
+      color: var(--text-primary);
+      border-radius: 7px;
+      padding: 0.18rem 0.55rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .code-copy-btn:hover {
+      border-color: var(--accent-amber);
+    }
+
+    .code-block-pre {
+      margin: 0;
+      padding: 0.85rem;
+      overflow-x: auto;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 0.84rem;
+      line-height: 1.5;
+      color: #f1f5f9;
+    }
+
+    .code-block-pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
     }
 
     .msg-meta {
-      margin-top: 0.45rem;
-      font-size: 0.74rem;
+      margin-top: 0.55rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 0.73rem;
       color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .msg-status-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.72rem;
+      color: #fcd34d;
+    }
+
+    .generating-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-amber);
+      display: inline-block;
+      animation: pulseGen 1.1s ease-in-out infinite;
+    }
+
+    @keyframes pulseGen {
+      0%, 100% { opacity: 0.35; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+
+    .msg-error-actions {
+      margin-top: 0.65rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .chat-composer-wrap {
+      width: 100%;
+      max-width: 820px;
+      margin: 0 auto;
+    }
+
+    .chat-status-bar {
+      min-height: 1.2rem;
+      margin-bottom: 0.4rem;
+      font-size: 0.77rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
     }
 
     .input-row {
       display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: flex-end;
+    }
+
+    .btn-stop {
+      display: none;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(239, 68, 68, 0.16);
+      color: #fecaca;
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      border-radius: 12px;
+      padding: 0.7rem 1.1rem;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-stop:hover {
+      background: rgba(239, 68, 68, 0.26);
+      border-color: #f87171;
+    }
+
+    .btn-stop.visible {
+      display: inline-flex;
     }
 
     input[type="text"], textarea, select {
@@ -417,20 +715,100 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     .conv-list-item {
-      padding: 0.6rem 0.8rem;
-      border-radius: 10px;
+      padding: 0.62rem 0.75rem;
+      border-radius: 11px;
       border: 1px solid var(--border-neutral);
       margin-bottom: 0.45rem;
       font-size: 0.83rem;
       cursor: pointer;
       color: var(--text-secondary);
       background: rgba(255,255,255,0.02);
+      transition: border-color 0.18s ease, background 0.18s ease;
     }
 
     .conv-list-item.active, .conv-list-item:hover {
       border-color: var(--accent-amber);
       color: var(--text-primary);
       background: rgba(255,107,43,0.1);
+    }
+
+    .conv-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+
+    .conv-item-title {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .conv-item-meta {
+      margin-top: 0.22rem;
+      font-size: 0.71rem;
+      color: var(--text-muted);
+    }
+
+    .conv-item-actions {
+      display: flex;
+      gap: 0.2rem;
+      flex-shrink: 0;
+      opacity: 0.75;
+    }
+
+    .conv-list-item:hover .conv-item-actions,
+    .conv-list-item.active .conv-item-actions {
+      opacity: 1;
+    }
+
+    .conv-icon-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+      border-radius: 6px;
+      padding: 0.12rem 0.36rem;
+      font-size: 0.72rem;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+
+    .conv-icon-btn:hover {
+      border-color: var(--accent-amber);
+      color: var(--text-primary);
+    }
+
+    .conv-icon-btn.danger:hover {
+      border-color: rgba(239, 68, 68, 0.55);
+      color: #fca5a5;
+    }
+
+    .conv-inline-edit {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+
+    .conv-inline-edit input {
+      padding: 0.32rem 0.55rem;
+      font-size: 0.8rem;
+      border-radius: 8px;
+    }
+
+    .conv-confirm-box {
+      margin-top: 0.45rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      font-size: 0.74rem;
+      color: #fca5a5;
     }
 
     /* Stage 2: Authentication Modal & Header Account Menu */
@@ -780,38 +1158,55 @@ export function renderGriotWebInterfaceHtml(): string {
     <section id="view-ask" class="view-panel">
       <div class="ask-layout">
         <!-- Left Sidebar: Persistent Conversations -->
-        <div class="glass-panel">
+        <aside class="glass-panel ask-sidebar" aria-label="Conversation history">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem;">
             <span class="action-tag" style="margin:0;">Conversations</span>
-            <button class="btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.75rem;" onclick="startNewConversation()">+ New</button>
+            <button class="btn-secondary" style="padding:0.28rem 0.65rem; font-size:0.76rem;" onclick="startNewConversation()" id="new-conv-btn" type="button">+ New Chat</button>
           </div>
-          <div id="conv-sidebar-list">
-            <div class="conv-list-item active">Current Session</div>
+          <div id="conv-sidebar-list" class="conv-sidebar-scroll">
+            <div class="conv-list-item active">New Session</div>
           </div>
-        </div>
+        </aside>
 
         <!-- Right Chat Area -->
-        <div class="glass-panel">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-            <div>
-              <h2 style="font-size:1.3rem;">ASK GRIOT</h2>
-              <p id="ask-runtime-subtitle" style="color:var(--text-secondary); font-size:0.85rem;">Checking backend readiness &bull; Persistent Context</p>
+        <div class="glass-panel ask-chat-panel">
+          <div class="ask-chat-header">
+            <div style="min-width:0;">
+              <h2 id="ask-chat-title" style="font-size:1.2rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">ASK GRIOT</h2>
+              <p id="ask-runtime-subtitle" style="color:var(--text-secondary); font-size:0.8rem;">Checking backend readiness &bull; Persistent Context</p>
             </div>
-            <select id="ask-module" style="width:auto;">
-              <option value="griot_chat">GRIOT Chat (General Assistant)</option>
-              <option value="griot_learn">GRIOT Learn (Entrepreneurship, Finance &amp; Tech)</option>
-              <option value="griot_business">GRIOT Business (Strategy &amp; Operations)</option>
-              <option value="griot_develop">GRIOT Develop (Coding Assistance)</option>
-            </select>
+            <div class="ask-controls-row">
+              <select id="ask-module" class="ask-select-compact" aria-label="GRIOT focus mode">
+                <option value="griot_chat">GRIOT Chat</option>
+                <option value="griot_learn">GRIOT Learn</option>
+                <option value="griot_business">GRIOT Business</option>
+                <option value="griot_develop">GRIOT Develop</option>
+              </select>
+              <select id="ask-model-select" class="ask-select-compact" aria-label="Model selection" style="display:none;">
+                <option value="">Auto (Smart Routing)</option>
+              </select>
+            </div>
           </div>
 
-          <div class="chat-messages" id="chat-messages">
-            <div class="msg-bubble msg-assistant">Welcome to <strong>ASK GRIOT</strong>. Ask me any question, request a summary or business draft, or explore entrepreneurship, financial education, engineering, and technology.</div>
+          <div class="chat-messages" id="chat-messages" aria-live="polite">
+            <div class="chat-empty-state" id="chat-empty-state">
+              <h3>What would you like to explore?</h3>
+              <p>Ask GRIOT a question, work through a business or technical problem, or draft content. Your conversations stay saved to your account.</p>
+              <div class="chat-suggestions">
+                <button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion('Explain how to validate and price a new SaaS product in 5 clear steps.')">Validate &amp; price a SaaS idea</button>
+                <button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion('Write a clean TypeScript debounce utility with usage example.')">TypeScript debounce helper</button>
+                <button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion('Draft a concise monthly investor update email template.')">Draft an investor update</button>
+              </div>
+            </div>
           </div>
 
-          <div class="input-row">
-            <textarea id="ask-input" rows="2" placeholder="Ask a question, request a lesson, or paste text to summarise..." style="flex:1;"></textarea>
-            <button class="btn-primary" onclick="sendAskGriot()" id="ask-send-btn">Send</button>
+          <div class="chat-composer-wrap">
+            <div class="chat-status-bar" id="ask-status-bar"></div>
+            <div class="input-row">
+              <textarea id="ask-input" rows="2" placeholder="Ask GRIOT anything... (Enter to send, Shift+Enter for new line)" style="flex:1; resize:vertical; min-height:48px; max-height:180px;" onkeydown="handleAskInputKeydown(event)"></textarea>
+              <button class="btn-stop" onclick="stopAskGriot()" id="ask-stop-btn" type="button">Stop</button>
+              <button class="btn-primary" onclick="sendAskGriot()" id="ask-send-btn" type="button">Send</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1025,15 +1420,28 @@ export function renderGriotWebInterfaceHtml(): string {
     const DEFAULT_REMOTE_API_BASE_URL = 'https://griot-ai.onrender.com/api/v1';
     const AUTH_SESSION_STORAGE_KEY = 'griot_auth_session_v2';
     const LEGACY_JWT_STORAGE_KEY = 'griot_v1_jwt';
+    const ACTIVE_CONV_STORAGE_PREFIX = 'griot_active_conv_v3:';
+    const ACTIVE_MODE_STORAGE_KEY = 'griot_active_mode_v3';
 
     let activeSession = null;
     let sessionToken = null;
     let activeMode = 'home';
     let activeConversationId = null;
+    let activeConversationTitle = 'ASK GRIOT';
+    let cachedConversations = [];
+    let availableModels = [];
     let activeProject = null;
     let brandEcosystem = true;
     let authModalMode = 'login';
     let authSubmitting = false;
+    let isGenerating = false;
+    let activeStreamController = null;
+    let generationCancelled = false;
+    let editingConversationId = null;
+    let pendingDeleteConversationId = null;
+    let lastFailedPrompt = null;
+    let codeBlockCopyMap = {};
+    let codeBlockSeq = 0;
 
     const PROVIDER_LABELS = {
       gemini: 'Gemini',
@@ -1218,19 +1626,44 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     function resetAccountScopedUiState() {
+      if (activeStreamController) {
+        generationCancelled = true;
+        try {
+          activeStreamController.abort();
+        } catch {
+          // Ignore abort errors during reset
+        }
+        activeStreamController = null;
+      }
+      isGenerating = false;
+      generationCancelled = false;
       activeConversationId = null;
+      activeConversationTitle = 'ASK GRIOT';
+      cachedConversations = [];
+      availableModels = [];
+      editingConversationId = null;
+      pendingDeleteConversationId = null;
+      lastFailedPrompt = null;
       activeProject = null;
+
+      updateGenerationControls(false, '');
+
+      const modelSelect = document.getElementById('ask-model-select');
+      if (modelSelect) {
+        modelSelect.innerHTML = '<option value="">Auto (Smart Routing)</option>';
+        modelSelect.value = '';
+        modelSelect.style.display = 'none';
+      }
+
+      const chatTitle = document.getElementById('ask-chat-title');
+      if (chatTitle) chatTitle.textContent = 'ASK GRIOT';
 
       const convSidebar = document.getElementById('conv-sidebar-list');
       if (convSidebar) {
         convSidebar.innerHTML = '<div class="conv-list-item active">New Session</div>';
       }
 
-      const chatBox = document.getElementById('chat-messages');
-      if (chatBox) {
-        chatBox.innerHTML =
-          '<div class="msg-bubble msg-assistant">Welcome to <strong>ASK GRIOT</strong>. Ask me any question, request a summary or business draft, or explore entrepreneurship, financial education, engineering, and technology.</div>';
-      }
+      renderChatEmptyState();
 
       const savedBar = document.getElementById('saved-projects-bar');
       if (savedBar) savedBar.style.display = 'none';
@@ -1330,7 +1763,32 @@ export function renderGriotWebInterfaceHtml(): string {
       }
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+      const externalSignal = options.signal || null;
+      const onExternalAbort = () => controller.abort();
+      if (externalSignal) {
+        if (externalSignal.aborted) {
+          clearTimeout(timer);
+          return {
+            ok: false,
+            status: 0,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'USER_ABORTED',
+              message: 'Generation stopped.',
+              retryable: false
+            }
+          };
+        }
+        if (typeof externalSignal.addEventListener === 'function') {
+          externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+      }
 
       let res;
       try {
@@ -1342,7 +1800,24 @@ export function renderGriotWebInterfaceHtml(): string {
         });
       } catch (err) {
         clearTimeout(timer);
+        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
+        if (externalSignal && externalSignal.aborted) {
+          return {
+            ok: false,
+            status: 0,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'USER_ABORTED',
+              message: 'Generation stopped.',
+              retryable: false
+            }
+          };
+        }
         const isAbort =
+          timedOut ||
           controller.signal.aborted ||
           (err && (err.name === 'AbortError' || /aborted|timeout/i.test(String(err.message || ''))));
         if (isAbort) {
@@ -1371,6 +1846,24 @@ export function renderGriotWebInterfaceHtml(): string {
         };
       } finally {
         clearTimeout(timer);
+        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
+      }
+
+      if (options.rawStream && res.ok) {
+        const streamRequestId =
+          res.headers && typeof res.headers.get === 'function'
+            ? res.headers.get('x-griot-request-id')
+            : null;
+        return {
+          ok: true,
+          status: res.status,
+          requestId: streamRequestId,
+          data: null,
+          response: res,
+          error: null
+        };
       }
 
       let envelope = null;
@@ -1790,7 +2283,10 @@ export function renderGriotWebInterfaceHtml(): string {
       }
 
       if (activeMode === 'ask') {
-        await loadConversationsSidebar();
+        await Promise.all([
+          loadAvailableModels(),
+          loadConversationsSidebar({ restoreSaved: true })
+        ]);
       } else if (activeMode === 'build') {
         await loadSavedProjectsBar();
       }
@@ -1983,7 +2479,55 @@ export function renderGriotWebInterfaceHtml(): string {
       }
     }
 
+    function getUserConversationStorageKey() {
+      const sess = getActiveSession();
+      const uid = sess && sess.user && sess.user.id ? String(sess.user.id) : '';
+      return uid ? ACTIVE_CONV_STORAGE_PREFIX + uid : null;
+    }
+
+    function saveActiveConversationForSession(convId) {
+      const key = getUserConversationStorageKey();
+      if (!key) return;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (convId) {
+            sessionStorage.setItem(key, String(convId));
+          } else {
+            sessionStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+
+    function getSavedConversationForSession() {
+      const key = getUserConversationStorageKey();
+      if (!key) return null;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          return sessionStorage.getItem(key) || null;
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      return null;
+    }
+
+    function clearSavedConversationForSession() {
+      const key = getUserConversationStorageKey();
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (key) sessionStorage.removeItem(key);
+          sessionStorage.removeItem(ACTIVE_MODE_STORAGE_KEY);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+
     function signOutUser() {
+      clearSavedConversationForSession();
       clearStoredSessionToken();
       resetAccountScopedUiState();
       closeAccountDropdown();
@@ -2011,11 +2555,33 @@ export function renderGriotWebInterfaceHtml(): string {
         resetAccountScopedUiState();
         return false;
       }
+      let savedMode = null;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          savedMode = sessionStorage.getItem(ACTIVE_MODE_STORAGE_KEY);
+        }
+      } catch {
+        savedMode = null;
+      }
+      if (savedMode === 'ask') {
+        await switchMode('ask');
+      }
       return true;
     }
 
     async function switchMode(mode) {
       activeMode = mode;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (mode === 'ask' || mode === 'build') {
+            sessionStorage.setItem(ACTIVE_MODE_STORAGE_KEY, mode);
+          } else {
+            sessionStorage.removeItem(ACTIVE_MODE_STORAGE_KEY);
+          }
+        }
+      } catch {
+        // Ignore storage errors
+      }
       closeAccountDropdown();
       document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -2026,7 +2592,10 @@ export function renderGriotWebInterfaceHtml(): string {
 
       if (mode === 'ask') {
         if (getStoredSessionToken()) {
-          await loadConversationsSidebar();
+          await Promise.all([
+            loadAvailableModels(),
+            loadConversationsSidebar({ restoreSaved: true })
+          ]);
         } else {
           openAuthModal('login', 'Sign in, create an account, or continue as Guest to use ASK GRIOT.', 'info');
         }
@@ -2040,111 +2609,1106 @@ export function renderGriotWebInterfaceHtml(): string {
       }
     }
 
-    async function loadConversationsSidebar() {
-      const res = await griotFetch('/conversations', { method: 'GET' });
-      if (!res.ok || !res.data) return;
-      const list = res.data.conversations || [];
+    // ---- STAGE 3: SAFE MARKDOWN RENDERER, MODEL VISIBILITY, STREAMING & CONVERSATION MANAGEMENT ----
+
+    function escapeHtml(raw) {
+      return String(raw || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatInlineMarkdown(escapedLine) {
+      let s = escapedLine;
+      const inlineCodes = [];
+      s = s.replace(/\`([^\`]+)\`/g, function (_m, code) {
+        const idx = inlineCodes.length;
+        inlineCodes.push('<code>' + code + '</code>');
+        return '%%GRIOT_ICODE_' + idx + '%%';
+      });
+      s = s.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, function (_m, label, url) {
+        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+      });
+      s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+      s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      s = s.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+      s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      s = s.replace(/%%GRIOT_ICODE_(\\d+)%%/g, function (_m, idx) {
+        return inlineCodes[Number(idx)] || '';
+      });
+      return s;
+    }
+
+    function renderSafeMarkdown(markdownText) {
+      const normalized = String(markdownText || '').replace(/\\r\\n/g, '\\n');
+      if (!normalized.trim()) return '';
+
+      const segments = [];
+      const fenceRegex = /\`\`\`([a-zA-Z0-9_+-]*)\\n?([\\s\\S]*?)(?:\`\`\`|$)/g;
+      let lastIndex = 0;
+      let match;
+      while ((match = fenceRegex.exec(normalized)) !== null) {
+        if (match.index > lastIndex) {
+          segments.push({ type: 'text', value: normalized.slice(lastIndex, match.index) });
+        }
+        segments.push({
+          type: 'code',
+          lang: (match[1] || '').trim(),
+          value: (match[2] || '').replace(/\\n$/, '')
+        });
+        lastIndex = fenceRegex.lastIndex;
+      }
+      if (lastIndex < normalized.length) {
+        segments.push({ type: 'text', value: normalized.slice(lastIndex) });
+      }
+
+      const htmlParts = [];
+      for (let sIdx = 0; sIdx < segments.length; sIdx++) {
+        const seg = segments[sIdx];
+        if (seg.type === 'code') {
+          const blockId = 'griot_code_' + (++codeBlockSeq);
+          codeBlockCopyMap[blockId] = seg.value;
+          const langLabel = seg.lang ? escapeHtml(seg.lang) : 'code';
+          htmlParts.push(
+            '<div class="code-block-wrap">' +
+              '<div class="code-block-header">' +
+                '<span>' + langLabel + '</span>' +
+                '<button type="button" class="code-copy-btn" onclick="copyCodeBlock(\\'' + blockId + '\\', this)">Copy</button>' +
+              '</div>' +
+              '<pre class="code-block-pre"><code>' + escapeHtml(seg.value) + '</code></pre>' +
+            '</div>'
+          );
+          continue;
+        }
+
+        const lines = seg.value.split('\\n');
+        let inUl = false;
+        let inOl = false;
+        let paragraphLines = [];
+
+        const flushParagraph = () => {
+          if (paragraphLines.length === 0) return;
+          htmlParts.push('<p>' + paragraphLines.join('<br />') + '</p>');
+          paragraphLines = [];
+        };
+        const closeLists = () => {
+          if (inUl) { htmlParts.push('</ul>'); inUl = false; }
+          if (inOl) { htmlParts.push('</ol>'); inOl = false; }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          const rawLine = lines[i];
+          const trimmed = rawLine.trim();
+          if (!trimmed) {
+            flushParagraph();
+            closeLists();
+            continue;
+          }
+
+          const headingMatch = trimmed.match(/^(#{1,3})\\s+(.+)$/);
+          if (headingMatch) {
+            flushParagraph();
+            closeLists();
+            const level = headingMatch[1].length;
+            htmlParts.push('<h' + level + '>' + formatInlineMarkdown(escapeHtml(headingMatch[2])) + '</h' + level + '>');
+            continue;
+          }
+
+          const quoteMatch = trimmed.match(/^>\\s?(.*)$/);
+          if (quoteMatch) {
+            flushParagraph();
+            closeLists();
+            htmlParts.push('<blockquote>' + formatInlineMarkdown(escapeHtml(quoteMatch[1])) + '</blockquote>');
+            continue;
+          }
+
+          const ulMatch = trimmed.match(/^[-*]\\s+(.+)$/);
+          if (ulMatch) {
+            flushParagraph();
+            if (inOl) { htmlParts.push('</ol>'); inOl = false; }
+            if (!inUl) { htmlParts.push('<ul>'); inUl = true; }
+            htmlParts.push('<li>' + formatInlineMarkdown(escapeHtml(ulMatch[1])) + '</li>');
+            continue;
+          }
+
+          const olMatch = trimmed.match(/^\\d+\\.\\s+(.+)$/);
+          if (olMatch) {
+            flushParagraph();
+            if (inUl) { htmlParts.push('</ul>'); inUl = false; }
+            if (!inOl) { htmlParts.push('<ol>'); inOl = true; }
+            htmlParts.push('<li>' + formatInlineMarkdown(escapeHtml(olMatch[1])) + '</li>');
+            continue;
+          }
+
+          closeLists();
+          paragraphLines.push(formatInlineMarkdown(escapeHtml(rawLine)));
+        }
+
+        flushParagraph();
+        closeLists();
+      }
+
+      return htmlParts.join('');
+    }
+
+    function copyCodeBlock(blockId, btnEl) {
+      const codeText = codeBlockCopyMap[blockId];
+      if (typeof codeText !== 'string') return;
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(codeText).catch(() => {});
+      }
+      if (btnEl) {
+        const prev = btnEl.textContent;
+        btnEl.textContent = 'Copied';
+        setTimeout(() => { btnEl.textContent = prev || 'Copy'; }, 1600);
+      }
+    }
+
+    function formatRelativeTime(isoString) {
+      if (!isoString) return '';
+      const ts = Date.parse(isoString);
+      if (isNaN(ts)) return '';
+      const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+      if (diffSec < 60) return 'Just now';
+      if (diffSec < 3600) return Math.floor(diffSec / 60) + 'm ago';
+      if (diffSec < 86400) return Math.floor(diffSec / 3600) + 'h ago';
+      if (diffSec < 604800) return Math.floor(diffSec / 86400) + 'd ago';
+      const d = new Date(ts);
+      return d.toLocaleDateString ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : isoString.slice(0, 10);
+    }
+
+    function formatProviderLabel(provider) {
+      if (!provider) return '';
+      return PROVIDER_LABELS[provider] || String(provider);
+    }
+
+    function lookupModelDisplayName(modelId, fallbackName) {
+      if (fallbackName) return fallbackName;
+      if (!modelId) return '';
+      for (let i = 0; i < availableModels.length; i++) {
+        if (availableModels[i].id === modelId) {
+          return availableModels[i].displayName || modelId;
+        }
+      }
+      return modelId;
+    }
+
+    function formatMessageModelMeta(info) {
+      if (!info) return '';
+      const parts = [];
+      const executedName = lookupModelDisplayName(info.modelId, info.modelDisplayName);
+      if (executedName) parts.push(executedName);
+      const provLabel = formatProviderLabel(info.provider);
+      if (provLabel) parts.push(provLabel);
+
+      if (info.fallbackUsed) {
+        const selectedName = lookupModelDisplayName(info.selectedModelId, info.selectedModelDisplayName);
+        if (selectedName && selectedName !== executedName) {
+          parts.push('Fallback from ' + selectedName);
+        } else {
+          parts.push('Fallback model');
+        }
+      }
+      if (info.executionMode === 'mock') {
+        parts.push('Dev Mock');
+      }
+      if (info.status === 'interrupted') {
+        parts.push('Stopped');
+      }
+      return parts.join(' • ');
+    }
+
+    function formatChatError(errObj, statusCode) {
+      const code = (errObj && (errObj.code || errObj.errorCode) ? String(errObj.code || errObj.errorCode) : '').toUpperCase();
+      const rawMsg = errObj && (errObj.message || errObj.error) ? String(errObj.message || errObj.error) : '';
+      const status = typeof statusCode === 'number' ? statusCode : (errObj && typeof errObj.statusCode === 'number' ? errObj.statusCode : 0);
+
+      if (status === 401 || code === 'AUTH_REQUIRED' || code === 'SESSION_EXPIRED' || code === 'INVALID_JWT' || code === 'UNAUTHENTICATED') {
+        return {
+          title: 'Session Expired',
+          message: 'Your session is no longer active. Please sign in again to continue chatting.',
+          retryable: false,
+          requiresAuth: true
+        };
+      }
+      if (code === 'PROVIDER_QUOTA_EXCEEDED' || (status === 429 && /quota|credit|billing/i.test(rawMsg))) {
+        return {
+          title: 'Model Quota Reached',
+          message: 'The active AI provider quota has been exhausted (HTTP 429). Wait a moment and try again, or choose Auto / another available model.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 429 || code === 'PROVIDER_RATE_LIMIT' || code === 'RATE_LIMIT_EXCEEDED' || code === 'RATE_LIMITED') {
+        return {
+          title: 'Rate Limit Reached',
+          message: 'Too many requests were sent in a short window (HTTP 429). Please wait a few seconds and retry.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 503 || code === 'PROVIDER_PROVIDER_UNAVAILABLE' || code === 'SERVICE_UNAVAILABLE') {
+        return {
+          title: 'Provider Temporarily Unavailable',
+          message: 'The AI service is temporarily experiencing high demand (HTTP 503). Please try again shortly.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 504 || code === 'REQUEST_TIMEOUT' || code === 'PROVIDER_TIMEOUT') {
+        return {
+          title: 'Request Timed Out',
+          message: 'GRIOT took too long to receive a response. Please try again or shorten your prompt.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 0 || code === 'NETWORK_ERROR' || code === 'PROVIDER_NETWORK_ERROR') {
+        return {
+          title: 'Connection Interrupted',
+          message: 'Could not reach GRIOT due to a network interruption. Check your connection and try again.',
+          retryable: true,
+          requiresAuth: false
+        };
+      }
+      if (status === 400 || status === 422 || code === 'VALIDATION_ERROR' || code === 'ROUTING_CONSTRAINT_UNSATISFIED' || code === 'UNSAFE_PROMPT') {
+        const cleanDetail = rawMsg && rawMsg.length <= 220 && !/stack|at\\s+\\w+\\s+\\(/i.test(rawMsg)
+          ? rawMsg
+          : 'The request could not be processed with the current parameters.';
+        return {
+          title: 'Request Could Not Be Processed',
+          message: cleanDetail + ' Adjust your prompt or select Auto routing and try again.',
+          retryable: false,
+          requiresAuth: false
+        };
+      }
+      return {
+        title: 'Response Failed',
+        message: 'GRIOT could not complete this response. Please try again.',
+        retryable: true,
+        requiresAuth: false
+      };
+    }
+
+    function renderChatEmptyState() {
+      const chatBox = document.getElementById('chat-messages');
+      if (!chatBox) return;
+      chatBox.innerHTML =
+        '<div class="chat-empty-state" id="chat-empty-state">' +
+          '<h3>What would you like to explore?</h3>' +
+          '<p>Ask GRIOT a question, work through a business or technical problem, or draft content. Your conversations stay saved to your account.</p>' +
+          '<div class="chat-suggestions">' +
+            '<button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion(\\'Explain how to validate and price a new SaaS product in 5 clear steps.\\')">Validate &amp; price a SaaS idea</button>' +
+            '<button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion(\\'Write a clean TypeScript debounce utility with usage example.\\')">TypeScript debounce helper</button>' +
+            '<button class="chat-suggestion-btn" type="button" onclick="useChatSuggestion(\\'Draft a concise monthly investor update email template.\\')">Draft an investor update</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function useChatSuggestion(text) {
+      const inputEl = document.getElementById('ask-input');
+      if (!inputEl) return;
+      inputEl.value = text;
+      if (typeof inputEl.focus === 'function') {
+        inputEl.focus();
+      }
+    }
+
+    function handleAskInputKeydown(event) {
+      if (!event) return;
+      if (event.key === 'Enter' && !event.shiftKey) {
+        if (typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (!isGenerating) {
+          sendAskGriot();
+        }
+      }
+    }
+
+    function updateGenerationControls(generating, statusText) {
+      isGenerating = Boolean(generating);
+      const sendBtn = document.getElementById('ask-send-btn');
+      const stopBtn = document.getElementById('ask-stop-btn');
+      const statusBar = document.getElementById('ask-status-bar');
+
+      if (sendBtn) {
+        sendBtn.disabled = isGenerating;
+        sendBtn.textContent = isGenerating ? 'Generating...' : 'Send';
+      }
+      if (stopBtn) {
+        if (isGenerating) {
+          stopBtn.classList.add('visible');
+          stopBtn.disabled = false;
+        } else {
+          stopBtn.classList.remove('visible');
+          stopBtn.disabled = true;
+        }
+      }
+      if (statusBar) {
+        if (isGenerating && statusText) {
+          statusBar.innerHTML = '<span class="msg-status-tag"><span class="generating-dot"></span>' + escapeHtml(statusText) + '</span>';
+        } else {
+          statusBar.textContent = statusText || '';
+        }
+      }
+    }
+
+    function getSelectedModelId() {
+      const sel = document.getElementById('ask-model-select');
+      if (!sel || !sel.value) return '';
+      return String(sel.value).trim();
+    }
+
+    async function loadAvailableModels() {
+      const sel = document.getElementById('ask-model-select');
+      const res = await griotFetch('/models?onlyAvailable=true', {
+        method: 'GET',
+        promptOnUnauth: false
+      });
+      if (!res.ok || !res.data || !Array.isArray(res.data.models)) {
+        return [];
+      }
+      const chatModels = res.data.models.filter(function (m) {
+        if (!m || !Array.isArray(m.capabilities)) return false;
+        const supportsChat = m.capabilities.indexOf('chat') !== -1 && m.capabilities.indexOf('streaming') !== -1;
+        const available = m.providerAvailable !== false;
+        return supportsChat && available;
+      });
+      availableModels = chatModels;
+
+      if (sel) {
+        const previousVal = sel.value || '';
+        sel.innerHTML = '';
+        const autoOpt = document.createElement('option');
+        autoOpt.value = '';
+        autoOpt.textContent = 'Auto (Smart Routing)';
+        sel.appendChild(autoOpt);
+
+        chatModels.forEach(function (m) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = (m.displayName || m.id) + ' (' + formatProviderLabel(m.provider) + ')';
+          sel.appendChild(opt);
+        });
+
+        const stillExists = chatModels.some(function (m) { return m.id === previousVal; });
+        sel.value = stillExists ? previousVal : '';
+        sel.style.display = chatModels.length > 0 ? 'inline-block' : 'none';
+      }
+      return chatModels;
+    }
+
+    function renderConversationsSidebarList() {
       const container = document.getElementById('conv-sidebar-list');
+      if (!container) return;
       container.innerHTML = '';
-      if (list.length === 0) {
-        const d = document.createElement('div');
-        d.className = 'conv-list-item active';
-        d.textContent = 'New Session';
-        container.appendChild(d);
+
+      if (!cachedConversations || cachedConversations.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'conv-list-item active';
+        empty.textContent = 'New Session';
+        container.appendChild(empty);
         return;
       }
-      list.forEach(c => {
-        const div = document.createElement('div');
-        div.className = 'conv-list-item' + (c.id === activeConversationId ? ' active' : '');
-        div.textContent = c.title;
-        div.onclick = () => loadConversationHistory(c.id);
-        container.appendChild(div);
+
+      cachedConversations.forEach(function (c) {
+        const item = document.createElement('div');
+        item.className = 'conv-list-item' + (c.id === activeConversationId ? ' active' : '');
+
+        if (editingConversationId === c.id) {
+          const editWrap = document.createElement('div');
+          editWrap.className = 'conv-inline-edit';
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.value = c.title || '';
+          inp.id = 'conv-rename-input-' + c.id;
+          inp.onclick = function (ev) { if (ev && ev.stopPropagation) ev.stopPropagation(); };
+          inp.onkeydown = function (ev) {
+            if (!ev) return;
+            if (ev.key === 'Enter') {
+              renameConversation(c.id, inp.value);
+            } else if (ev.key === 'Escape') {
+              editingConversationId = null;
+              renderConversationsSidebarList();
+            }
+          };
+
+          const saveBtn = document.createElement('button');
+          saveBtn.className = 'conv-icon-btn';
+          saveBtn.textContent = 'Save';
+          saveBtn.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            renameConversation(c.id, inp.value);
+          };
+
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'conv-icon-btn';
+          cancelBtn.textContent = 'Cancel';
+          cancelBtn.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            editingConversationId = null;
+            renderConversationsSidebarList();
+          };
+
+          editWrap.appendChild(inp);
+          editWrap.appendChild(saveBtn);
+          editWrap.appendChild(cancelBtn);
+          item.appendChild(editWrap);
+          container.appendChild(item);
+          return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'conv-item-row';
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'conv-item-title';
+        titleSpan.textContent = c.title || 'Untitled Conversation';
+
+        const actions = document.createElement('div');
+        actions.className = 'conv-item-actions';
+
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'conv-icon-btn';
+        renameBtn.textContent = 'Rename';
+        renameBtn.onclick = function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          beginInlineRename(c.id);
+        };
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'conv-icon-btn danger';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          requestDeleteConfirmation(c.id);
+        };
+
+        actions.appendChild(renameBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(titleSpan);
+        row.appendChild(actions);
+        item.appendChild(row);
+
+        const meta = document.createElement('div');
+        meta.className = 'conv-item-meta';
+        meta.textContent = formatRelativeTime(c.updatedAt || c.createdAt);
+        item.appendChild(meta);
+
+        if (pendingDeleteConversationId === c.id) {
+          const confirmBox = document.createElement('div');
+          confirmBox.className = 'conv-confirm-box';
+
+          const label = document.createElement('span');
+          label.textContent = 'Delete chat?';
+
+          const btnGroup = document.createElement('div');
+          btnGroup.style.display = 'flex';
+          btnGroup.style.gap = '0.3rem';
+
+          const yesBtn = document.createElement('button');
+          yesBtn.className = 'conv-icon-btn danger';
+          yesBtn.textContent = 'Confirm';
+          yesBtn.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            deleteConversation(c.id);
+          };
+
+          const noBtn = document.createElement('button');
+          noBtn.className = 'conv-icon-btn';
+          noBtn.textContent = 'Cancel';
+          noBtn.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            pendingDeleteConversationId = null;
+            renderConversationsSidebarList();
+          };
+
+          btnGroup.appendChild(yesBtn);
+          btnGroup.appendChild(noBtn);
+          confirmBox.appendChild(label);
+          confirmBox.appendChild(btnGroup);
+          item.appendChild(confirmBox);
+        }
+
+        item.onclick = function () {
+          if (isGenerating) return;
+          loadConversationHistory(c.id);
+        };
+        container.appendChild(item);
       });
+    }
+
+    async function loadConversationsSidebar(options = {}) {
+      const res = await griotFetch('/conversations', { method: 'GET' });
+      if (!res.ok || !res.data) return [];
+      cachedConversations = res.data.conversations || [];
+
+      if (options.restoreSaved && !activeConversationId) {
+        const savedId = getSavedConversationForSession();
+        if (savedId && cachedConversations.some(function (c) { return c.id === savedId; })) {
+          renderConversationsSidebarList();
+          await loadConversationHistory(savedId);
+          return cachedConversations;
+        }
+      }
+
+      if (activeConversationId) {
+        const match = cachedConversations.find(function (c) { return c.id === activeConversationId; });
+        if (match) {
+          activeConversationTitle = match.title;
+          const titleEl = document.getElementById('ask-chat-title');
+          if (titleEl) titleEl.textContent = match.title;
+        }
+      }
+
+      renderConversationsSidebarList();
+      return cachedConversations;
+    }
+
+    function beginInlineRename(convId) {
+      pendingDeleteConversationId = null;
+      editingConversationId = convId;
+      renderConversationsSidebarList();
+      const inp = document.getElementById('conv-rename-input-' + convId);
+      if (inp && typeof inp.focus === 'function') {
+        inp.focus();
+      }
+    }
+
+    function requestDeleteConfirmation(convId) {
+      editingConversationId = null;
+      pendingDeleteConversationId = convId;
+      renderConversationsSidebarList();
+    }
+
+    async function renameConversation(convId, newTitle) {
+      const cleaned = String(newTitle || '').trim();
+      if (!cleaned) {
+        editingConversationId = null;
+        renderConversationsSidebarList();
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Title cannot be empty.' } };
+      }
+      const res = await griotFetch('/conversations/' + encodeURIComponent(convId), {
+        method: 'PATCH',
+        body: { title: cleaned }
+      });
+      editingConversationId = null;
+      if (res.ok && res.data) {
+        cachedConversations = cachedConversations.map(function (c) {
+          return c.id === convId ? Object.assign({}, c, { title: res.data.title, updatedAt: res.data.updatedAt }) : c;
+        });
+        if (activeConversationId === convId) {
+          activeConversationTitle = res.data.title;
+          const titleEl = document.getElementById('ask-chat-title');
+          if (titleEl) titleEl.textContent = res.data.title;
+        }
+      }
+      renderConversationsSidebarList();
+      return res;
+    }
+
+    async function deleteConversation(convId) {
+      const res = await griotFetch('/conversations/' + encodeURIComponent(convId), {
+        method: 'DELETE'
+      });
+      pendingDeleteConversationId = null;
+      if (res.ok) {
+        cachedConversations = cachedConversations.filter(function (c) { return c.id !== convId; });
+        if (activeConversationId === convId) {
+          activeConversationId = null;
+          activeConversationTitle = 'ASK GRIOT';
+          saveActiveConversationForSession(null);
+          const titleEl = document.getElementById('ask-chat-title');
+          if (titleEl) titleEl.textContent = 'ASK GRIOT';
+          renderChatEmptyState();
+        }
+      }
+      renderConversationsSidebarList();
+      return res;
     }
 
     function startNewConversation() {
+      if (isGenerating) {
+        stopAskGriot();
+      }
       activeConversationId = null;
-      document.getElementById('chat-messages').innerHTML =
-        '<div class="msg-bubble msg-assistant">Started a new <strong>ASK GRIOT</strong> conversation. What would you like to explore?</div>';
-      loadConversationsSidebar();
+      activeConversationTitle = 'ASK GRIOT';
+      editingConversationId = null;
+      pendingDeleteConversationId = null;
+      saveActiveConversationForSession(null);
+      const titleEl = document.getElementById('ask-chat-title');
+      if (titleEl) titleEl.textContent = 'ASK GRIOT';
+      renderChatEmptyState();
+      renderConversationsSidebarList();
+      const inputEl = document.getElementById('ask-input');
+      if (inputEl && typeof inputEl.focus === 'function') {
+        inputEl.focus();
+      }
+    }
+
+    function appendMessageBubbleToDom(msg) {
+      const chatBox = document.getElementById('chat-messages');
+      if (!chatBox) return null;
+
+      const bubble = document.createElement('div');
+      const isUser = msg.role === 'user';
+      bubble.className = 'msg-bubble ' + (isUser ? 'msg-user' : 'msg-assistant');
+
+      const roleLabel = document.createElement('div');
+      roleLabel.className = 'msg-role-label';
+      roleLabel.textContent = isUser ? 'You' : 'GRIOT';
+      bubble.appendChild(roleLabel);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'msg-body';
+      if (isUser) {
+        bodyEl.textContent = msg.content || '';
+      } else {
+        bodyEl.innerHTML = renderSafeMarkdown(msg.content || '');
+      }
+      bubble.appendChild(bodyEl);
+
+      if (!isUser) {
+        const metaInfo = {
+          modelId: msg.modelId || null,
+          modelDisplayName: msg.metadata && msg.metadata.modelDisplayName ? msg.metadata.modelDisplayName : null,
+          provider: msg.provider || null,
+          selectedModelId: msg.metadata && msg.metadata.selectedModelId ? msg.metadata.selectedModelId : null,
+          selectedModelDisplayName: msg.metadata && msg.metadata.selectedModelDisplayName ? msg.metadata.selectedModelDisplayName : null,
+          fallbackUsed: Boolean(msg.metadata && msg.metadata.fallbackUsed),
+          executionMode: msg.metadata && msg.metadata.executionMode ? msg.metadata.executionMode : null,
+          status: msg.status || 'completed'
+        };
+        const metaText = formatMessageModelMeta(metaInfo);
+        if (metaText) {
+          const metaEl = document.createElement('div');
+          metaEl.className = 'msg-meta';
+          metaEl.textContent = metaText;
+          bubble.appendChild(metaEl);
+        }
+      }
+
+      chatBox.appendChild(bubble);
+      return { bubble, bodyEl };
     }
 
     async function loadConversationHistory(convId) {
+      if (!convId) return { ok: false };
       activeConversationId = convId;
+      saveActiveConversationForSession(convId);
+
+      const match = cachedConversations.find(function (c) { return c.id === convId; });
+      if (match) {
+        activeConversationTitle = match.title;
+        const titleEl = document.getElementById('ask-chat-title');
+        if (titleEl) titleEl.textContent = match.title;
+      }
+
       const res = await griotFetch('/conversations/' + encodeURIComponent(convId) + '/messages', {
         method: 'GET'
       });
-      if (!res.ok || !res.data) return;
+      if (!res.ok || !res.data) {
+        renderConversationsSidebarList();
+        return res;
+      }
+
       const chatBox = document.getElementById('chat-messages');
-      chatBox.innerHTML = '';
-      (res.data.messages || []).forEach(m => {
-        const div = document.createElement('div');
-        div.className = 'msg-bubble ' + (m.role === 'user' ? 'msg-user' : 'msg-assistant');
-        div.textContent = m.content;
-        chatBox.appendChild(div);
-      });
-      chatBox.scrollTop = chatBox.scrollHeight;
-      loadConversationsSidebar();
+      if (chatBox) {
+        chatBox.innerHTML = '';
+        const messages = res.data.messages || [];
+        if (messages.length === 0) {
+          renderChatEmptyState();
+        } else {
+          messages.forEach(function (m) {
+            appendMessageBubbleToDom(m);
+          });
+        }
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+      renderConversationsSidebarList();
+      return res;
     }
 
-    async function sendAskGriot() {
+    function stopAskGriot() {
+      if (!isGenerating) return false;
+      generationCancelled = true;
+      if (activeStreamController) {
+        try {
+          activeStreamController.abort();
+        } catch {
+          // Ignore abort errors
+        }
+        activeStreamController = null;
+      }
+      updateGenerationControls(false, 'Generation stopped.');
+      return true;
+    }
+
+    function renderErrorInsideBubble(bubble, bodyEl, metaEl, formattedErr, retryPrompt) {
+      bubble.className = 'msg-bubble msg-assistant msg-error';
+      bodyEl.innerHTML =
+        '<p><strong>' + escapeHtml(formattedErr.title) + '</strong></p>' +
+        '<p>' + escapeHtml(formattedErr.message) + '</p>';
+
+      const actions = document.createElement('div');
+      actions.className = 'msg-error-actions';
+      if (formattedErr.requiresAuth) {
+        const signInBtn = document.createElement('button');
+        signInBtn.className = 'btn-primary';
+        signInBtn.style.padding = '0.42rem 0.85rem';
+        signInBtn.style.fontSize = '0.8rem';
+        signInBtn.textContent = 'Sign In';
+        signInBtn.onclick = function () { openAuthModal('login', formattedErr.message, 'info'); };
+        actions.appendChild(signInBtn);
+      } else if (formattedErr.retryable && retryPrompt) {
+        lastFailedPrompt = retryPrompt;
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'btn-secondary';
+        retryBtn.style.padding = '0.42rem 0.85rem';
+        retryBtn.style.fontSize = '0.8rem';
+        retryBtn.textContent = 'Retry';
+        retryBtn.onclick = function () {
+          const inp = document.getElementById('ask-input');
+          if (inp && !isGenerating) {
+            inp.value = retryPrompt;
+            sendAskGriot();
+          }
+        };
+        actions.appendChild(retryBtn);
+      }
+      if (actions.children.length > 0) {
+        bodyEl.appendChild(actions);
+      }
+      if (metaEl) {
+        metaEl.textContent = '';
+      }
+    }
+
+    async function sendAskGriot(overridePrompt) {
+      if (isGenerating) {
+        return { ok: false, error: { code: 'GENERATION_IN_PROGRESS', message: 'A response is already being generated.' } };
+      }
+
       const inputEl = document.getElementById('ask-input');
-      const prompt = inputEl.value.trim();
-      if (!prompt) return;
+      const prompt = typeof overridePrompt === 'string'
+        ? overridePrompt.trim()
+        : (inputEl ? inputEl.value.trim() : '');
+      if (!prompt) {
+        return { ok: false, error: { code: 'EMPTY_PROMPT', message: 'Please enter a message.' } };
+      }
 
       const token = getStoredSessionToken();
       if (!token) {
         openAuthModal('login', 'Sign in, create an account, or continue as Guest to send a message.', 'info');
-        return;
+        return { ok: false, status: 401, error: { code: 'AUTH_REQUIRED', message: 'Authentication required.' } };
       }
       if (isJwtExpired(token)) {
         handleUnauthorizedSession('Your session has expired. Please sign in again.', true);
-        return;
+        return { ok: false, status: 401, error: { code: 'SESSION_EXPIRED', message: 'Session expired.' } };
       }
 
-      inputEl.value = '';
+      if (inputEl && typeof overridePrompt !== 'string') {
+        inputEl.value = '';
+      }
 
       const chatBox = document.getElementById('chat-messages');
-      const userDiv = document.createElement('div');
-      userDiv.className = 'msg-bubble msg-user';
-      userDiv.textContent = prompt;
-      chatBox.appendChild(userDiv);
+      if (chatBox) {
+        if (chatBox.innerHTML.indexOf('chat-empty-state') !== -1) {
+          chatBox.innerHTML = '';
+        }
+      }
 
-      const btn = document.getElementById('ask-send-btn');
-      btn.disabled = true;
-      btn.textContent = 'Thinking...';
+      appendMessageBubbleToDom({ role: 'user', content: prompt });
+
+      // Create progressive assistant message bubble
+      const botBubble = document.createElement('div');
+      botBubble.className = 'msg-bubble msg-assistant';
+      const botRole = document.createElement('div');
+      botRole.className = 'msg-role-label';
+      botRole.textContent = 'GRIOT';
+      const botBody = document.createElement('div');
+      botBody.className = 'msg-body';
+      botBody.innerHTML = '<span class="msg-status-tag"><span class="generating-dot"></span>Thinking...</span>';
+      const botMeta = document.createElement('div');
+      botMeta.className = 'msg-meta';
+      botBubble.appendChild(botRole);
+      botBubble.appendChild(botBody);
+      botBubble.appendChild(botMeta);
+      if (chatBox) {
+        chatBox.appendChild(botBubble);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+
+      generationCancelled = false;
+      activeStreamController = new AbortController();
+      updateGenerationControls(true, 'GRIOT is generating...');
+
+      const productModuleEl = document.getElementById('ask-module');
+      const productModule = productModuleEl && productModuleEl.value ? productModuleEl.value : 'griot_chat';
+      const selectedModelId = getSelectedModelId();
+
+      const requestPayload = {
+        prompt,
+        productModule,
+        conversationId: activeConversationId || undefined,
+        createConversationIfMissing: true,
+        stream: true
+      };
+      if (selectedModelId) {
+        requestPayload.routingHints = { requestedModelId: selectedModelId };
+      }
+
+      let accumulatedText = '';
+      let streamMeta = {
+        modelId: null,
+        modelDisplayName: null,
+        provider: null,
+        selectedModelId: selectedModelId || null,
+        selectedModelDisplayName: selectedModelId ? lookupModelDisplayName(selectedModelId) : null,
+        fallbackUsed: false,
+        executionMode: null,
+        status: 'streaming'
+      };
+      let terminalEventType = null;
+      let terminalError = null;
+      let reader = null;
 
       try {
-        const productModule = document.getElementById('ask-module').value;
         const res = await griotFetch('/chat/completions', {
           method: 'POST',
-          timeoutMs: 45000,
-          body: {
-            prompt,
-            productModule,
-            conversationId: activeConversationId || undefined,
-            createConversationIfMissing: true
-          }
+          timeoutMs: 90000,
+          rawStream: true,
+          signal: activeStreamController.signal,
+          body: requestPayload
         });
-        const botDiv = document.createElement('div');
-        botDiv.className = 'msg-bubble msg-assistant';
-        if (res.ok && res.data) {
-          activeConversationId = res.data.conversationId;
-          botDiv.textContent = res.data.content;
-          const meta = document.createElement('div');
-          meta.className = 'msg-meta';
-          const v1Cat = res.data.v1Routing ? res.data.v1Routing.v1Category : res.data.routing.taskClassification;
-          meta.textContent = res.data.modelDisplayName + ' • ' + res.data.executionMode.toUpperCase() + ' • ' + v1Cat;
-          botDiv.appendChild(meta);
-          loadConversationsSidebar();
-        } else {
-          botDiv.textContent = 'Error: ' + (res.error ? res.error.message : 'Request failed');
+
+        if (!res.ok) {
+          if (res.error && res.error.code === 'USER_ABORTED') {
+            terminalEventType = 'interrupted';
+            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped before output arrived.</em></p>';
+            botMeta.textContent = 'Stopped';
+            return { ok: true, interrupted: true, conversationId: activeConversationId, content: '' };
+          }
+          const formatted = formatChatError(res.error, res.status);
+          renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
+          return { ok: false, status: res.status, error: res.error };
         }
-        chatBox.appendChild(botDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
+
+        const httpRes = res.response;
+        if (!httpRes || !httpRes.body || typeof httpRes.body.getReader !== 'function') {
+          const formatted = formatChatError({ code: 'EMPTY_RESPONSE', message: 'Empty stream response.' }, 502);
+          renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
+          return { ok: false, error: { code: 'EMPTY_RESPONSE', message: formatted.message } };
+        }
+
+        reader = httpRes.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let sseBuffer = '';
+
+        const processSseFrame = function (frameText) {
+          if (generationCancelled) return;
+          const lines = frameText.split(/\\r?\\n/);
+          let eventType = '';
+          const dataLines = [];
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+          const dataRaw = dataLines.join('\\n').trim();
+          if (!dataRaw || dataRaw === '[DONE]') return;
+
+          let evt;
+          try {
+            evt = JSON.parse(dataRaw);
+          } catch {
+            return;
+          }
+
+          const resolvedType = evt.type || eventType;
+          if (evt.conversationId) {
+            activeConversationId = evt.conversationId;
+            saveActiveConversationForSession(activeConversationId);
+          }
+          if (evt.modelId) streamMeta.modelId = evt.modelId;
+          if (evt.modelDisplayName) streamMeta.modelDisplayName = evt.modelDisplayName;
+          if (evt.provider) streamMeta.provider = evt.provider;
+          if (evt.selectedModelId) streamMeta.selectedModelId = evt.selectedModelId;
+          if (evt.selectedModelDisplayName) streamMeta.selectedModelDisplayName = evt.selectedModelDisplayName;
+          if (typeof evt.fallbackUsed === 'boolean') streamMeta.fallbackUsed = evt.fallbackUsed;
+          if (evt.executionMode) streamMeta.executionMode = evt.executionMode;
+
+          if (resolvedType === 'routing') {
+            const routingLabel = formatMessageModelMeta(streamMeta);
+            updateGenerationControls(true, routingLabel ? 'Responding with ' + routingLabel + '...' : 'GRIOT is responding...');
+            if (routingLabel) {
+              botMeta.textContent = routingLabel;
+            }
+          } else if (resolvedType === 'delta') {
+            if (generationCancelled) return;
+            if (typeof evt.deltaText === 'string' && evt.deltaText.length > 0) {
+              accumulatedText += evt.deltaText;
+              botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+              if (chatBox) {
+                chatBox.scrollTop = chatBox.scrollHeight;
+              }
+            }
+          } else if (resolvedType === 'completed') {
+            terminalEventType = 'completed';
+            streamMeta.status = 'completed';
+            if (evt.assistantMessage && typeof evt.assistantMessage.content === 'string' && !accumulatedText) {
+              accumulatedText = evt.assistantMessage.content;
+            }
+            botBody.innerHTML = accumulatedText
+              ? renderSafeMarkdown(accumulatedText)
+              : '<p style="color:var(--text-secondary);"><em>GRIOT returned an empty response.</em></p>';
+            botMeta.textContent = formatMessageModelMeta(streamMeta);
+          } else if (resolvedType === 'interrupted') {
+            terminalEventType = 'interrupted';
+            streamMeta.status = 'interrupted';
+            if (accumulatedText) {
+              botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+            } else {
+              botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped.</em></p>';
+            }
+            botMeta.textContent = formatMessageModelMeta(streamMeta) || 'Stopped';
+          } else if (resolvedType === 'error') {
+            terminalEventType = 'error';
+            terminalError = evt;
+            const formatted = formatChatError(
+              {
+                code: evt.errorCode || 'STREAM_ERROR',
+                message: evt.error || 'Stream error',
+                statusCode: evt.statusCode
+              },
+              evt.statusCode
+            );
+            renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
+          }
+        };
+
+        while (true) {
+          if (generationCancelled) {
+            try { await reader.cancel(); } catch {}
+            break;
+          }
+          const readResult = await reader.read();
+          if (readResult.done) break;
+          if (generationCancelled) {
+            try { await reader.cancel(); } catch {}
+            break;
+          }
+          sseBuffer += decoder.decode(readResult.value, { stream: true });
+          let boundaryIdx;
+          while ((boundaryIdx = sseBuffer.search(/\\r?\\n\\r?\\n/)) !== -1) {
+            const frame = sseBuffer.slice(0, boundaryIdx);
+            const sepMatch = sseBuffer.slice(boundaryIdx).match(/^\\r?\\n\\r?\\n/);
+            const sepLen = sepMatch ? sepMatch[0].length : 2;
+            sseBuffer = sseBuffer.slice(boundaryIdx + sepLen);
+            if (frame.trim()) {
+              processSseFrame(frame);
+            }
+          }
+        }
+
+        if (!generationCancelled && sseBuffer.trim()) {
+          processSseFrame(sseBuffer.trim());
+        }
+
+        if (generationCancelled) {
+          terminalEventType = 'interrupted';
+          streamMeta.status = 'interrupted';
+          if (accumulatedText) {
+            botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+          } else {
+            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped.</em></p>';
+          }
+          botMeta.textContent = formatMessageModelMeta(streamMeta) || 'Stopped';
+        } else if (!terminalEventType) {
+          if (accumulatedText) {
+            streamMeta.status = 'interrupted';
+            botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+            botMeta.textContent = (formatMessageModelMeta(streamMeta) || 'Interrupted') + ' • Connection ended early';
+          } else {
+            const formatted = formatChatError({ code: 'NETWORK_ERROR', message: 'Stream ended unexpectedly.' }, 0);
+            renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
+            return { ok: false, error: { code: 'NETWORK_ERROR', message: formatted.message } };
+          }
+        }
+
+        if (chatBox) {
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        if (activeConversationId) {
+          await loadConversationsSidebar();
+        }
+        if (terminalEventType === 'error') {
+          return {
+            ok: false,
+            conversationId: activeConversationId,
+            error: {
+              code: (terminalError && terminalError.errorCode) || 'STREAM_ERROR',
+              message: (terminalError && terminalError.error) || 'Stream error'
+            }
+          };
+        }
+        return {
+          ok: true,
+          conversationId: activeConversationId,
+          content: accumulatedText,
+          interrupted: terminalEventType === 'interrupted' || generationCancelled,
+          meta: streamMeta
+        };
+      } catch (err) {
+        if (generationCancelled || (activeStreamController && activeStreamController.signal.aborted)) {
+          streamMeta.status = 'interrupted';
+          if (accumulatedText) {
+            botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+          } else {
+            botBody.innerHTML = '<p style="color:var(--text-secondary);"><em>Generation stopped.</em></p>';
+          }
+          botMeta.textContent = formatMessageModelMeta(streamMeta) || 'Stopped';
+          if (activeConversationId) {
+            await loadConversationsSidebar();
+          }
+          return {
+            ok: true,
+            conversationId: activeConversationId,
+            content: accumulatedText,
+            interrupted: true,
+            meta: streamMeta
+          };
+        }
+        if (accumulatedText) {
+          streamMeta.status = 'interrupted';
+          botBody.innerHTML = renderSafeMarkdown(accumulatedText);
+          botMeta.textContent = (formatMessageModelMeta(streamMeta) || 'Interrupted') + ' • Connection interrupted';
+          if (activeConversationId) {
+            await loadConversationsSidebar();
+          }
+          return {
+            ok: false,
+            conversationId: activeConversationId,
+            content: accumulatedText,
+            interrupted: true,
+            error: { code: 'NETWORK_ERROR', message: 'Connection interrupted during streaming.' }
+          };
+        }
+        const formatted = formatChatError({ code: 'NETWORK_ERROR', message: (err && err.message) || 'Network interruption' }, 0);
+        renderErrorInsideBubble(botBubble, botBody, botMeta, formatted, prompt);
+        return { ok: false, error: { code: 'NETWORK_ERROR', message: formatted.message } };
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'Send';
+        if (reader && typeof reader.releaseLock === 'function') {
+          try { reader.releaseLock(); } catch {}
+        }
+        activeStreamController = null;
+        updateGenerationControls(false, '');
       }
     }
 

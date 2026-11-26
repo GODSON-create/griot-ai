@@ -245,12 +245,79 @@ export class ProviderManager {
 
     const releaseSlot =
       provider === 'open_weight' ? await this.localConcurrency.acquireSlot() : null;
+    const timeoutMs = request.timeoutMs ?? this.config.requestTimeoutMs ?? 30000;
+    const streamController = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetInactivityTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timedOut = true;
+        streamController.abort();
+      }, timeoutMs);
+    };
+
+    const onCallerAbort = () => {
+      streamController.abort();
+    };
+
+    if (request.abortSignal?.aborted) {
+      streamController.abort();
+    } else {
+      request.abortSignal?.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    resetInactivityTimer();
+
     try {
       const adapter = this.getAdapter(provider);
-      for await (const chunk of adapter.stream(request, credentials)) {
+      for await (const chunk of adapter.stream(
+        {
+          ...request,
+          abortSignal: streamController.signal,
+        },
+        credentials
+      )) {
+        resetInactivityTimer();
+        if (request.abortSignal?.aborted) {
+          return;
+        }
         yield { ...chunk, executionMode: 'live' };
       }
+      if (timedOut && !request.abortSignal?.aborted) {
+        throw new ProviderError({
+          provider,
+          category: 'timeout',
+          statusCode: 504,
+          retryable: true,
+          message: `${provider} stream timed out after ${timeoutMs}ms`,
+        });
+      }
+      this.clearModelCooldown(request.model.id);
+    } catch (err) {
+      if (request.abortSignal?.aborted) {
+        return;
+      }
+      let finalErr: Error;
+      if (timedOut) {
+        finalErr = new ProviderError({
+          provider,
+          category: 'timeout',
+          statusCode: 504,
+          retryable: true,
+          message: `${provider} stream timed out after ${timeoutMs}ms`,
+        });
+      } else {
+        finalErr = err as Error;
+      }
+      if (finalErr instanceof ProviderError) {
+        this.recordModelFailureCooldown(request.model.id, finalErr);
+      }
+      throw finalErr;
     } finally {
+      if (timer) clearTimeout(timer);
+      request.abortSignal?.removeEventListener('abort', onCallerAbort);
       if (releaseSlot) releaseSlot();
     }
   }

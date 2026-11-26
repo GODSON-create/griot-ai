@@ -136,11 +136,18 @@ export interface GriotStreamEvent {
   conversationId: string | null;
   deltaText?: string;
   modelId?: string;
+  modelDisplayName?: string;
   provider?: string;
+  selectedModelId?: string;
+  selectedModelDisplayName?: string;
   fallbackUsed?: boolean;
+  attemptedModels?: string[];
   usageLedger?: UsageLedgerRecord;
   assistantMessage?: ConversationMessageRecord;
   error?: string;
+  errorCode?: string;
+  statusCode?: number;
+  retryable?: boolean;
 }
 
 export class GriotCore {
@@ -342,6 +349,20 @@ export class GriotCore {
     };
   }
 
+  private generateConversationTitle(promptText?: string): string {
+    if (!promptText) return 'New Conversation';
+    const cleaned = promptText
+      .replace(/\s+/g, ' ')
+      .replace(/^[#>*`\-–—\s"]+/, '')
+      .replace(/["\s]+$/, '')
+      .trim();
+    if (!cleaned) return 'New Conversation';
+    if (cleaned.length <= 60) return cleaned;
+    const cut = cleaned.slice(0, 60);
+    const lastSpace = cut.lastIndexOf(' ');
+    return (lastSpace >= 24 ? cut.slice(0, lastSpace) : cut).trim() + '...';
+  }
+
   public async executeChat(request: GriotChatRequest): Promise<GriotChatResult> {
     const startMs = Date.now();
     const { requestId, attachments, rawMessages } = this.EnforcePreChecks(request);
@@ -402,7 +423,7 @@ export class GriotCore {
         auth: request.auth,
         title:
           request.conversationTitle ||
-          (lastUserMessage ? lastUserMessage.content.slice(0, 60) : 'New Conversation'),
+          this.generateConversationTitle(lastUserMessage?.content),
       });
       activeConversationId = conv.id;
     }
@@ -834,6 +855,9 @@ export class GriotCore {
         metadata: {
           productModule: productModuleId,
           executionMode,
+          modelDisplayName: usedModel.displayName,
+          selectedModelId: routingDecision.selectedModel.id,
+          selectedModelDisplayName: routingDecision.selectedModel.displayName,
           taskClassification: routingDecision.taskClassification,
           fallbackUsed,
           attemptedModels,
@@ -920,7 +944,7 @@ export class GriotCore {
         auth: request.auth,
         title:
           request.conversationTitle ||
-          (lastUserMessage ? lastUserMessage.content.slice(0, 60) : 'Streaming Session'),
+          this.generateConversationTitle(lastUserMessage?.content),
       });
       activeConversationId = conv.id;
     }
@@ -952,15 +976,21 @@ export class GriotCore {
       messagesForModel.push(...rawMessages);
     }
 
+    const mergedHints: RoutingHints = {
+      ...productBoundary.defaultRoutingHints,
+      preferredProvider:
+        request.routingHints?.preferredProvider ?? userPrefs.preferredProvider,
+      requestedModelId:
+        request.routingHints?.requestedModelId ?? userPrefs.preferredModelId,
+      ...request.routingHints,
+      stream: true,
+    };
+
     const routingDecision = this.routingEngine.selectModel({
       orgId: org.id,
       messages: messagesForModel,
       tools: request.tools,
-      hints: {
-        ...productBoundary.defaultRoutingHints,
-        ...request.routingHints,
-        stream: true,
-      },
+      hints: mergedHints,
       orgPreferences: org.preferences,
       maxOutputTokens: request.maxOutputTokens,
     });
@@ -977,11 +1007,12 @@ export class GriotCore {
       estimatedRequestCostUsd: 0.0001,
     });
 
-    const candidates = [
-      routingDecision.selectedModel,
-      ...routingDecision.fallbackChain,
-    ];
-    let usedModel = routingDecision.selectedModel;
+    const selectedModel = routingDecision.selectedModel;
+    const candidates = request.routingHints?.requestedModelId
+      ? [selectedModel]
+      : [selectedModel, ...routingDecision.fallbackChain];
+    const attemptedModels: string[] = [];
+    let usedModel = selectedModel;
     let accumulatedContent = '';
     let finalUsage = {
       inputTokens: routingDecision.estimatedInputTokens,
@@ -994,10 +1025,17 @@ export class GriotCore {
     let executionMode: ExecutionMode = 'live';
 
     for (let idx = 0; idx < candidates.length; idx++) {
+      if (request.abortSignal?.aborted) {
+        wasInterrupted = true;
+        streamSucceeded = true;
+        break;
+      }
+
       const candidate = candidates[idx];
       this.multimodal.assertModelSupportsAttachments(candidate, attachments);
       usedModel = candidate;
       fallbackUsed = idx > 0;
+      attemptedModels.push(candidate.id);
 
       try {
         yield {
@@ -1006,8 +1044,12 @@ export class GriotCore {
           productModule: productModuleId,
           conversationId: activeConversationId,
           modelId: candidate.id,
+          modelDisplayName: candidate.displayName,
           provider: candidate.provider,
+          selectedModelId: selectedModel.id,
+          selectedModelDisplayName: selectedModel.displayName,
           fallbackUsed,
+          attemptedModels: [...attemptedModels],
         };
 
         for await (const chunk of this.providerManager.executeStream(
@@ -1018,6 +1060,7 @@ export class GriotCore {
             temperature: request.temperature,
             maxOutputTokens: request.maxOutputTokens,
             stream: true,
+            timeoutMs: request.timeoutMs,
             abortSignal: request.abortSignal,
           },
           org.id
@@ -1028,7 +1071,7 @@ export class GriotCore {
           if (request.abortSignal?.aborted || chunk.finishReason === 'interrupted') {
             wasInterrupted = true;
           }
-          if (chunk.deltaText) {
+          if (chunk.deltaText && !request.abortSignal?.aborted) {
             accumulatedContent += chunk.deltaText;
             yield {
               type: 'delta',
@@ -1038,7 +1081,11 @@ export class GriotCore {
               conversationId: activeConversationId,
               deltaText: chunk.deltaText,
               modelId: candidate.id,
+              modelDisplayName: candidate.displayName,
               provider: candidate.provider,
+              selectedModelId: selectedModel.id,
+              selectedModelDisplayName: selectedModel.displayName,
+              fallbackUsed,
             };
           }
           if (chunk.usage) {
@@ -1053,17 +1100,35 @@ export class GriotCore {
           }
         }
 
+        if (request.abortSignal?.aborted) {
+          wasInterrupted = true;
+        }
         streamSucceeded = true;
-        this.providerManager.recordSuccess(candidate.provider, Date.now() - startMs);
+        if (!wasInterrupted) {
+          this.providerManager.recordSuccess(candidate.provider, Date.now() - startMs);
+        }
         break;
       } catch (err) {
+        if (request.abortSignal?.aborted) {
+          wasInterrupted = true;
+          streamSucceeded = true;
+          break;
+        }
         this.providerManager.recordFailure(candidate.provider, (err as Error).message);
         if (accumulatedContent.length > 0) {
           wasInterrupted = true;
           streamSucceeded = true;
           break;
         }
-        if (idx === candidates.length - 1) {
+        const canFallbackToNextModel =
+          err instanceof ProviderError
+            ? (err.retryable ||
+                err.category === 'auth_error' ||
+                err.category === 'quota_exceeded' ||
+                err.statusCode === 404) &&
+              !request.routingHints?.requestedModelId
+            : !request.routingHints?.requestedModelId;
+        if (!canFallbackToNextModel || idx === candidates.length - 1) {
           throw err;
         }
       }
@@ -1085,7 +1150,7 @@ export class GriotCore {
     });
 
     let savedAssistantMsg: ConversationMessageRecord | undefined;
-    if (activeConversationId) {
+    if (activeConversationId && (!wasInterrupted || cleanContent.length > 0)) {
       savedAssistantMsg = this.conversationEngine.appendMessage({
         conversationId: activeConversationId,
         auth: request.auth,
@@ -1100,7 +1165,15 @@ export class GriotCore {
         costUsd: costPreview.billableCostUsd,
         latencyMs: Date.now() - startMs,
         interruptedAtChar: wasInterrupted ? cleanContent.length : null,
-        metadata: { productModule: productModuleId, executionMode },
+        metadata: {
+          productModule: productModuleId,
+          executionMode,
+          modelDisplayName: usedModel.displayName,
+          selectedModelId: selectedModel.id,
+          selectedModelDisplayName: selectedModel.displayName,
+          fallbackUsed,
+          attemptedModels,
+        },
       });
     }
 
@@ -1131,8 +1204,12 @@ export class GriotCore {
       executionMode,
       conversationId: activeConversationId,
       modelId: usedModel.id,
+      modelDisplayName: usedModel.displayName,
       provider: usedModel.provider,
+      selectedModelId: selectedModel.id,
+      selectedModelDisplayName: selectedModel.displayName,
       fallbackUsed,
+      attemptedModels,
       usageLedger: ledger,
       assistantMessage: savedAssistantMsg,
     };
