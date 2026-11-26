@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import vm from 'node:vm';
 import {
   AuthError,
   GriotCore,
@@ -21,6 +22,7 @@ import {
   RoutingConstraintError,
   type FetchFunction,
 } from '../src/index.ts';
+import { renderGriotWebInterfaceHtml } from '../src/ui/griotAppHtml.ts';
 
 describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Suite', () => {
   let tmpDir: string;
@@ -551,5 +553,368 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
       await server.close();
       core.close();
     }
+  });
+
+  it('4. Stage 1 Frontend Integration: Centralized griotFetch() API Helper & Health-Aware Runtime Detection', async () => {
+    const html = renderGriotWebInterfaceHtml();
+
+    // 1. Misleading hardcoded subtitle removed; existing structure & view IDs preserved
+    assert.equal(html.includes('Local-First Open-Weight Execution'), false);
+    assert.ok(html.includes('id="view-home"'));
+    assert.ok(html.includes('id="view-ask"'));
+    assert.ok(html.includes('id="view-build"'));
+    assert.ok(html.includes('id="header-runtime-pill"'));
+    assert.ok(html.includes('id="ask-runtime-subtitle"'));
+
+    // 2. Extract inline script and confirm only griotFetch() invokes fetch()
+    const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(scriptMatch, 'Expected inline <script> in griotAppHtml.ts');
+    const scriptSource = scriptMatch[1];
+    const rawFetchMatches = scriptSource.match(/\bfetch\s*\(/g) || [];
+    assert.equal(
+      rawFetchMatches.length,
+      1,
+      `Expected exactly 1 raw fetch() call inside griotFetch(), found ${rawFetchMatches.length}`
+    );
+
+    // Helper to instantiate the frontend script inside an isolated VM context
+    function createFrontendVmHarness(customFetch: typeof globalThis.fetch, apiBaseUrl?: string) {
+      const storage = new Map<string, string>();
+      const elements: Record<
+        string,
+        { textContent: string; innerHTML: string; value: string; disabled: boolean; style: Record<string, string> }
+      > = {
+        'header-runtime-pill': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
+        'ask-runtime-subtitle': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
+        'header-brand-badge': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
+      };
+
+      const windowObj: Record<string, unknown> = {
+        location: { protocol: 'https:' },
+      };
+      if (apiBaseUrl) {
+        windowObj.GRIOT_API_BASE_URL = apiBaseUrl;
+      }
+
+      const sandbox: Record<string, unknown> = {
+        window: windowObj,
+        fetch: customFetch,
+        AbortController,
+        setTimeout,
+        clearTimeout,
+        encodeURIComponent,
+        Math,
+        Object,
+        Array,
+        String,
+        Boolean,
+        Promise,
+        JSON,
+        localStorage: {
+          getItem: (k: string) => storage.get(k) ?? null,
+          setItem: (k: string, v: string) => {
+            storage.set(k, String(v));
+          },
+          removeItem: (k: string) => {
+            storage.delete(k);
+          },
+        },
+        document: {
+          getElementById: (id: string) => {
+            if (!elements[id]) {
+              elements[id] = { textContent: '', innerHTML: '', value: '', disabled: false, style: {} };
+            }
+            return elements[id];
+          },
+          querySelectorAll: () => [],
+          createElement: () => ({ className: '', textContent: '', style: {}, appendChild: () => {} }),
+        },
+      };
+
+      // Prevent automatic boot call from racing before test assertions, then expose helpers
+      const testableScript =
+        scriptSource.replace(/inspectBackendRuntime\(\);\s*$/, '') +
+        '\nglobalThis.__exports = { resolveApiBaseUrl, buildApiUrl, griotFetch, inspectBackendRuntime, ensureDemoSession };';
+      vm.createContext(sandbox);
+      vm.runInContext(testableScript, sandbox);
+
+      return {
+        exports: sandbox.__exports as {
+          resolveApiBaseUrl: () => string;
+          buildApiUrl: (ep: string) => string;
+          griotFetch: (ep: string, opts?: Record<string, unknown>) => Promise<{
+            ok: boolean;
+            status: number;
+            requestId: string | null;
+            data: unknown;
+            error: { code: string; message: string; retryable: boolean } | null;
+          }>;
+          inspectBackendRuntime: () => Promise<{
+            reachable: boolean;
+            healthy?: boolean;
+            mode: string;
+            liveCloudProviders?: string[];
+            ollamaReachable?: boolean;
+            firstLocalModel?: string | null;
+          }>;
+          ensureDemoSession: (force?: boolean) => Promise<string | null>;
+        },
+        elements,
+        storage,
+        windowObj,
+      };
+    }
+
+    // 3. Verify same-origin /api/v1 and external API_BASE_URL normalization without path duplication
+    const sameOriginHarness = createFrontendVmHarness(async () => new Response('{}', { status: 200 }));
+    assert.equal(sameOriginHarness.exports.resolveApiBaseUrl(), '/api/v1');
+    assert.equal(sameOriginHarness.exports.buildApiUrl('/health'), '/api/v1/health');
+    assert.equal(sameOriginHarness.exports.buildApiUrl('/api/v1/conversations'), '/api/v1/conversations');
+
+    const externalHarness = createFrontendVmHarness(
+      async () => new Response('{}', { status: 200 }),
+      'https://griot-ai.onrender.com/api/v1/'
+    );
+    assert.equal(externalHarness.exports.resolveApiBaseUrl(), 'https://griot-ai.onrender.com/api/v1');
+    assert.equal(
+      externalHarness.exports.buildApiUrl('/chat/completions'),
+      'https://griot-ai.onrender.com/api/v1/chat/completions'
+    );
+    assert.equal(
+      externalHarness.exports.buildApiUrl('/api/v1/health'),
+      'https://griot-ai.onrender.com/api/v1/health'
+    );
+
+    // 4. Verify Cloud-Configured Runtime Detection (Render + Gemini live, Ollama unreachable)
+    const cloudHarness = createFrontendVmHarness(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/health')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            apiVersion: 'v1',
+            requestId: 'req_h1',
+            timestamp: new Date().toISOString(),
+            data: {
+              status: 'healthy',
+              readiness: { backend: { ready: true }, database: { ready: true } },
+              providersConfigured: {
+                gemini: { configured: true, mode: 'live' },
+                openai: { configured: false, mode: 'unconfigured' },
+                open_weight: { configured: false, mode: 'unconfigured' },
+              },
+            },
+            error: null,
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          apiVersion: 'v1',
+          requestId: 'req_lr1',
+          timestamp: new Date().toISOString(),
+          data: { ollama: { apiReachable: false, installedModels: [] } },
+          error: null,
+        }),
+        { status: 200 }
+      );
+    });
+
+    const cloudStatus = await cloudHarness.exports.inspectBackendRuntime();
+    assert.equal(cloudStatus.reachable, true);
+    assert.equal(cloudStatus.mode, 'cloud');
+    assert.equal(
+      cloudHarness.elements['header-runtime-pill'].textContent,
+      'Backend Ready • Gemini Cloud Configured'
+    );
+    assert.equal(
+      cloudHarness.elements['ask-runtime-subtitle'].textContent,
+      'Cloud Inference Configured (Gemini) • Persistent Context'
+    );
+
+    // 5. Verify Local Ollama Runtime Detection (Ollama reachable with pulled model, no cloud key)
+    const localHarness = createFrontendVmHarness(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/health')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            apiVersion: 'v1',
+            requestId: 'req_h2',
+            timestamp: new Date().toISOString(),
+            data: {
+              status: 'healthy',
+              readiness: { backend: { ready: true }, database: { ready: true } },
+              providersConfigured: {
+                gemini: { configured: false, mode: 'unconfigured' },
+                open_weight: { configured: true, mode: 'live' },
+              },
+            },
+            error: null,
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          apiVersion: 'v1',
+          requestId: 'req_lr2',
+          timestamp: new Date().toISOString(),
+          data: {
+            ollama: {
+              apiReachable: true,
+              ollamaVersion: '0.40.16',
+              installedModels: [{ name: 'qwen2.5:0.5b' }],
+            },
+          },
+          error: null,
+        }),
+        { status: 200 }
+      );
+    });
+
+    const localStatus = await localHarness.exports.inspectBackendRuntime();
+    assert.equal(localStatus.mode, 'local_ollama');
+    assert.equal(
+      localHarness.elements['header-runtime-pill'].textContent,
+      'Backend Ready • Local Ollama (qwen2.5:0.5b) Configured'
+    );
+
+    // 6. Verify 401 stale-token recovery, 429, 503, timeout, and network error handling in griotFetch()
+    let seenAuthHeaders: string[] = [];
+    let failFirst401 = true;
+
+    const errorHarness = createFrontendVmHarness(async (input, init) => {
+      const url = String(input);
+      const headers = (init?.headers || {}) as Record<string, string>;
+      if (headers['Authorization']) {
+        seenAuthHeaders.push(headers['Authorization']);
+      }
+
+      if (url.endsWith('/auth/register')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            apiVersion: 'v1',
+            requestId: 'req_reg',
+            timestamp: new Date().toISOString(),
+            data: { accessToken: 'fresh_valid_jwt_token' },
+            error: null,
+          }),
+          { status: 201 }
+        );
+      }
+
+      if (url.endsWith('/conversations')) {
+        if (failFirst401) {
+          failFirst401 = false;
+          return new Response(
+            JSON.stringify({
+              success: false,
+              apiVersion: 'v1',
+              requestId: 'req_401',
+              timestamp: new Date().toISOString(),
+              data: null,
+              error: { code: 'INVALID_JWT', message: 'Expired token' },
+            }),
+            { status: 401 }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            apiVersion: 'v1',
+            requestId: 'req_conv_ok',
+            timestamp: new Date().toISOString(),
+            data: { conversations: [{ id: 'conv_1', title: 'Test Chat' }] },
+            error: null,
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith('/rate-limited')) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            apiVersion: 'v1',
+            requestId: 'req_429',
+            timestamp: new Date().toISOString(),
+            data: null,
+            error: { code: 'PROVIDER_QUOTA_EXCEEDED', message: 'Quota exceeded' },
+          }),
+          { status: 429 }
+        );
+      }
+
+      if (url.endsWith('/overloaded')) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            apiVersion: 'v1',
+            requestId: 'req_503',
+            timestamp: new Date().toISOString(),
+            data: null,
+            error: { code: 'PROVIDER_PROVIDER_UNAVAILABLE', message: 'High demand' },
+          }),
+          { status: 503 }
+        );
+      }
+
+      if (url.endsWith('/slow')) {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const abortErr = new Error('Aborted');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+          });
+        });
+      }
+
+      throw new TypeError('Failed to fetch');
+    });
+
+    // Seed an expired token -> griotFetch('/conversations') should hit 401, clear it, re-register once, and succeed
+    errorHarness.storage.set('griot_v1_jwt', 'stale_expired_jwt');
+    const convResult = await errorHarness.exports.griotFetch('/conversations');
+    assert.equal(convResult.ok, true);
+    assert.equal(seenAuthHeaders[0], 'Bearer stale_expired_jwt');
+    assert.equal(seenAuthHeaders[1], 'Bearer fresh_valid_jwt_token');
+
+    // 429 handling
+    const res429 = await errorHarness.exports.griotFetch('/rate-limited', { skipAuth: true });
+    assert.equal(res429.ok, false);
+    assert.equal(res429.status, 429);
+    assert.equal(res429.error?.code, 'PROVIDER_QUOTA_EXCEEDED');
+    assert.equal(res429.error?.retryable, true);
+
+    // 503 handling
+    const res503 = await errorHarness.exports.griotFetch('/overloaded', { skipAuth: true });
+    assert.equal(res503.ok, false);
+    assert.equal(res503.status, 503);
+    assert.equal(res503.error?.code, 'PROVIDER_PROVIDER_UNAVAILABLE');
+    assert.equal(res503.error?.retryable, true);
+
+    // Timeout handling
+    const resTimeout = await errorHarness.exports.griotFetch('/slow', {
+      skipAuth: true,
+      timeoutMs: 30,
+    });
+    assert.equal(resTimeout.ok, false);
+    assert.equal(resTimeout.status, 504);
+    assert.equal(resTimeout.error?.code, 'REQUEST_TIMEOUT');
+
+    // Network error handling + Backend Unreachable UI state
+    const resNet = await errorHarness.exports.griotFetch('/offline', { skipAuth: true });
+    assert.equal(resNet.ok, false);
+    assert.equal(resNet.status, 0);
+    assert.equal(resNet.error?.code, 'NETWORK_ERROR');
+
+    const unreachableStatus = await errorHarness.exports.inspectBackendRuntime();
+    assert.equal(unreachableStatus.reachable, false);
+    assert.equal(errorHarness.elements['header-runtime-pill'].textContent, 'Backend Unreachable');
   });
 });

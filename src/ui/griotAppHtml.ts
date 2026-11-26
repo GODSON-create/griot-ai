@@ -440,7 +440,7 @@ export function renderGriotWebInterfaceHtml(): string {
       <div class="brand-orb-mini"></div>
       <span id="header-brand-title">GRIOT AI</span>
       <span class="brand-badge" onclick="toggleBrandMode()" id="header-brand-badge" title="Click to toggle standalone vs ecosystem branding">Powered by Avantage</span>
-      <span class="runtime-pill" id="header-runtime-pill">Checking Local Inference...</span>
+      <span class="runtime-pill" id="header-runtime-pill">Checking Backend Readiness...</span>
     </div>
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="switchMode('home')" id="tab-home">Home</button>
@@ -496,7 +496,7 @@ export function renderGriotWebInterfaceHtml(): string {
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
             <div>
               <h2 style="font-size:1.3rem;">ASK GRIOT</h2>
-              <p style="color:var(--text-secondary); font-size:0.85rem;">Local-First Open-Weight Execution &bull; Persistent Context</p>
+              <p id="ask-runtime-subtitle" style="color:var(--text-secondary); font-size:0.85rem;">Checking backend readiness &bull; Persistent Context</p>
             </div>
             <select id="ask-module" style="width:auto;">
               <option value="griot_chat">GRIOT Chat (General Assistant)</option>
@@ -661,27 +661,384 @@ export function renderGriotWebInterfaceHtml(): string {
   </main>
 
   <script>
+    const DEFAULT_REMOTE_API_BASE_URL = 'https://griot-ai.onrender.com/api/v1';
     let sessionToken = null;
     let activeConversationId = null;
     let activeProject = null;
     let brandEcosystem = true;
 
-    async function checkLocalRuntime() {
+    const PROVIDER_LABELS = {
+      gemini: 'Gemini',
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      mistral: 'Mistral',
+      open_weight: 'Open-Weight'
+    };
+
+    function stripTrailingSlashes(value) {
+      let out = String(value || '').trim();
+      while (out.length > 1 && out.endsWith('/')) {
+        out = out.slice(0, -1);
+      }
+      return out === '/' ? '' : out;
+    }
+
+    function resolveApiBaseUrl() {
+      const winOverride =
+        typeof window !== 'undefined' && typeof window.GRIOT_API_BASE_URL === 'string'
+          ? stripTrailingSlashes(window.GRIOT_API_BASE_URL)
+          : '';
+      if (winOverride) {
+        return winOverride;
+      }
       try {
-        const res = await fetch('/api/v1/local-runtime');
-        const json = await res.json();
-        const pill = document.getElementById('header-runtime-pill');
-        if (json.success && json.data && json.data.ollama && json.data.ollama.apiReachable) {
-          const models = json.data.ollama.installedModels || [];
-          const modelLabel = models.length > 0 ? models[0].name : 'No Model Pulled';
-          pill.textContent = 'Ollama v' + json.data.ollama.ollamaVersion + ' • ' + modelLabel + ' (LIVE)';
-        } else {
-          pill.textContent = 'Local Ollama Standby';
+        const storedBase = localStorage.getItem('griot_api_base_url');
+        if (storedBase && storedBase.trim()) {
+          return stripTrailingSlashes(storedBase);
         }
       } catch {
-        // ignore
+        // Ignore storage read restrictions
+      }
+      if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') {
+        return DEFAULT_REMOTE_API_BASE_URL;
+      }
+      return '/api/v1';
+    }
+
+    function buildApiUrl(endpoint) {
+      const base = resolveApiBaseUrl();
+      let cleanPath = String(endpoint || '').trim();
+      if (cleanPath.startsWith('/api/v1/')) {
+        cleanPath = cleanPath.slice(7);
+      } else if (cleanPath === '/api/v1') {
+        cleanPath = '';
+      }
+      if (cleanPath && !cleanPath.startsWith('/')) {
+        cleanPath = '/' + cleanPath;
+      }
+      return base + cleanPath;
+    }
+
+    function getStoredSessionToken() {
+      if (sessionToken) return sessionToken;
+      try {
+        const stored = localStorage.getItem('griot_v1_jwt');
+        if (stored) {
+          sessionToken = stored;
+          return sessionToken;
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      return null;
+    }
+
+    function clearStoredSessionToken() {
+      sessionToken = null;
+      try {
+        localStorage.removeItem('griot_v1_jwt');
+      } catch {
+        // Ignore storage errors
       }
     }
+
+    async function griotFetch(endpoint, options = {}) {
+      const method = (options.method || 'GET').toUpperCase();
+      const skipAuth = Boolean(options.skipAuth);
+      const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 35000;
+      const headers = Object.assign({}, options.headers || {});
+
+      if (!skipAuth) {
+        let token = getStoredSessionToken();
+        if (!token && options.autoSession !== false) {
+          token = await ensureDemoSession();
+        }
+        if (token) {
+          headers['Authorization'] = 'Bearer ' + token;
+        }
+      }
+
+      let requestBody = undefined;
+      if (options.body !== undefined) {
+        if (typeof options.body === 'string') {
+          requestBody = options.body;
+        } else {
+          headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+          requestBody = JSON.stringify(options.body);
+        }
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let res;
+      try {
+        res = await fetch(buildApiUrl(endpoint), {
+          method,
+          headers,
+          body: requestBody,
+          signal: controller.signal
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        const isAbort =
+          controller.signal.aborted ||
+          (err && (err.name === 'AbortError' || /aborted|timeout/i.test(String(err.message || ''))));
+        if (isAbort) {
+          return {
+            ok: false,
+            status: 504,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'REQUEST_TIMEOUT',
+              message: 'Request timed out while waiting for GRIOT backend. Please try again.',
+              retryable: true
+            }
+          };
+        }
+        return {
+          ok: false,
+          status: 0,
+          requestId: null,
+          data: null,
+          error: {
+            code: 'NETWORK_ERROR',
+            message: 'Unable to reach GRIOT backend. Check your connection and try again.',
+            retryable: true
+          }
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+
+      let envelope = null;
+      try {
+        envelope = await res.json();
+      } catch {
+        envelope = null;
+      }
+
+      const requestId =
+        (envelope && typeof envelope.requestId === 'string' ? envelope.requestId : null) ||
+        (res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-griot-request-id') : null);
+
+      if (res.status === 401) {
+        clearStoredSessionToken();
+        if (!skipAuth && !options._retried401 && options.autoSession !== false) {
+          const refreshed = await ensureDemoSession(true);
+          if (refreshed) {
+            return griotFetch(endpoint, Object.assign({}, options, { _retried401: true }));
+          }
+        }
+        return {
+          ok: false,
+          status: 401,
+          requestId,
+          data: null,
+          error: {
+            code: (envelope && envelope.error && envelope.error.code) || 'UNAUTHENTICATED',
+            message: 'Your session expired or could not be authenticated. Please refresh and try again.',
+            retryable: false
+          }
+        };
+      }
+
+      if (res.status === 429) {
+        return {
+          ok: false,
+          status: 429,
+          requestId,
+          data: null,
+          error: {
+            code: (envelope && envelope.error && envelope.error.code) || 'RATE_LIMITED',
+            message: 'Rate limit or model quota reached (HTTP 429). Please wait a moment and try again.',
+            retryable: true
+          }
+        };
+      }
+
+      if (res.status === 503) {
+        return {
+          ok: false,
+          status: 503,
+          requestId,
+          data: null,
+          error: {
+            code: (envelope && envelope.error && envelope.error.code) || 'SERVICE_UNAVAILABLE',
+            message: 'The AI service is temporarily experiencing high demand (HTTP 503). Please try again shortly.',
+            retryable: true
+          }
+        };
+      }
+
+      if (res.ok && envelope && envelope.success === true) {
+        return {
+          ok: true,
+          status: res.status,
+          requestId,
+          data: envelope.data,
+          error: null
+        };
+      }
+
+      const rawErrCode = (envelope && envelope.error && envelope.error.code) || 'API_ERROR';
+      const rawErrMsg =
+        (envelope && envelope.error && envelope.error.message) ||
+        ('Request failed with HTTP ' + res.status);
+
+      return {
+        ok: false,
+        status: res.status,
+        requestId,
+        data: envelope ? envelope.data : null,
+        error: {
+          code: rawErrCode,
+          message: rawErrMsg,
+          retryable: res.status >= 500
+        }
+      };
+    }
+
+    function setRuntimePillStyle(pill, tone) {
+      if (!pill || !pill.style) return;
+      if (tone === 'ready') {
+        pill.style.background = 'rgba(16, 185, 129, 0.12)';
+        pill.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+        pill.style.color = '#6ee7b7';
+      } else if (tone === 'warning') {
+        pill.style.background = 'rgba(245, 158, 11, 0.14)';
+        pill.style.borderColor = 'rgba(245, 158, 11, 0.38)';
+        pill.style.color = '#fcd34d';
+      } else {
+        pill.style.background = 'rgba(239, 68, 68, 0.14)';
+        pill.style.borderColor = 'rgba(239, 68, 68, 0.38)';
+        pill.style.color = '#fca5a5';
+      }
+    }
+
+    async function inspectBackendRuntime() {
+      const pill = document.getElementById('header-runtime-pill');
+      const askSubtitle = document.getElementById('ask-runtime-subtitle');
+
+      const [healthRes, localRes] = await Promise.all([
+        griotFetch('/health', { method: 'GET', skipAuth: true, timeoutMs: 8000 }),
+        griotFetch('/local-runtime', { method: 'GET', skipAuth: true, timeoutMs: 8000 })
+      ]);
+
+      if (!healthRes.ok || !healthRes.data) {
+        if (pill) {
+          pill.textContent = 'Backend Unreachable';
+          setRuntimePillStyle(pill, 'danger');
+        }
+        if (askSubtitle) {
+          askSubtitle.textContent = 'Backend Unreachable • Check API Connection';
+        }
+        return { reachable: false, mode: 'unreachable' };
+      }
+
+      const healthData = healthRes.data;
+      const dbReady =
+        !healthData.readiness ||
+        !healthData.readiness.database ||
+        Boolean(healthData.readiness.database.ready);
+      const isHealthy = healthData.status === 'healthy' && dbReady;
+
+      const providersCfg = healthData.providersConfigured || {};
+      const liveCloudProviders = ['gemini', 'openai', 'anthropic', 'mistral']
+        .filter(p => providersCfg[p] && providersCfg[p].mode === 'live')
+        .map(p => PROVIDER_LABELS[p] || p);
+
+      const hasMockFallback = Object.keys(providersCfg).some(
+        p => providersCfg[p] && providersCfg[p].mode === 'mock_fallback'
+      );
+
+      const ollamaInfo =
+        localRes.ok && localRes.data && localRes.data.ollama ? localRes.data.ollama : null;
+      const ollamaReachable = Boolean(ollamaInfo && ollamaInfo.apiReachable);
+      const installedLocalModels =
+        ollamaInfo && Array.isArray(ollamaInfo.installedModels) ? ollamaInfo.installedModels : [];
+      const firstLocalModel = installedLocalModels.length > 0 ? installedLocalModels[0].name : null;
+
+      let pillText = '';
+      let subtitleText = '';
+      let tone = isHealthy ? 'ready' : 'warning';
+      let mode = 'unconfigured';
+
+      if (liveCloudProviders.length > 0 && ollamaReachable && firstLocalModel) {
+        mode = 'hybrid_cloud_and_local';
+        pillText =
+          (isHealthy ? 'Backend Ready' : 'Backend Degraded') +
+          ' • ' +
+          liveCloudProviders.join(', ') +
+          ' Cloud + Local Ollama (' +
+          firstLocalModel +
+          ')';
+        subtitleText =
+          'Cloud (' +
+          liveCloudProviders.join(', ') +
+          ') & Local Ollama (' +
+          firstLocalModel +
+          ') Configured • Persistent Context';
+      } else if (liveCloudProviders.length > 0) {
+        mode = 'cloud';
+        pillText =
+          (isHealthy ? 'Backend Ready' : 'Backend Degraded') +
+          ' • ' +
+          liveCloudProviders.join(', ') +
+          ' Cloud Configured';
+        subtitleText =
+          'Cloud Inference Configured (' +
+          liveCloudProviders.join(', ') +
+          ') • Persistent Context';
+      } else if (ollamaReachable && firstLocalModel) {
+        mode = 'local_ollama';
+        pillText =
+          (isHealthy ? 'Backend Ready' : 'Backend Degraded') +
+          ' • Local Ollama (' +
+          firstLocalModel +
+          ') Configured';
+        subtitleText =
+          'Local Ollama Configured (' +
+          firstLocalModel +
+          ') • Persistent Context';
+      } else if (ollamaReachable && !firstLocalModel) {
+        mode = 'local_ollama_empty';
+        tone = 'warning';
+        pillText = 'Backend Ready • Local Ollama (No Model Pulled)';
+        subtitleText = 'Local Ollama Connected (No Model Pulled) • Persistent Context';
+      } else if (hasMockFallback) {
+        mode = 'mock_fallback';
+        tone = 'warning';
+        pillText = 'Backend Ready • Dev Fallback Mode';
+        subtitleText = 'Development Fallback Mode Configured • Persistent Context';
+      } else {
+        mode = 'unconfigured';
+        tone = 'warning';
+        pillText = 'Backend Degraded • No Provider Configured';
+        subtitleText = 'Backend Ready • No Inference Provider Configured';
+      }
+
+      if (pill) {
+        pill.textContent = pillText;
+        setRuntimePillStyle(pill, tone);
+      }
+      if (askSubtitle) {
+        askSubtitle.textContent = subtitleText;
+      }
+
+      return {
+        reachable: true,
+        healthy: isHealthy,
+        mode,
+        liveCloudProviders,
+        ollamaReachable,
+        firstLocalModel
+      };
+    }
+
+    // Preserve legacy function alias
+    const checkLocalRuntime = inspectBackendRuntime;
 
     function toggleBrandMode() {
       brandEcosystem = !brandEcosystem;
@@ -689,27 +1046,30 @@ export function renderGriotWebInterfaceHtml(): string {
       badge.textContent = brandEcosystem ? 'Powered by Avantage' : 'Standalone Global';
     }
 
-    async function ensureDemoSession() {
-      if (sessionToken) return sessionToken;
-      const stored = localStorage.getItem('griot_v1_jwt');
-      if (stored) {
-        sessionToken = stored;
-        return sessionToken;
+    async function ensureDemoSession(forceRefresh = false) {
+      if (!forceRefresh) {
+        const existing = getStoredSessionToken();
+        if (existing) return existing;
+      } else {
+        clearStoredSessionToken();
       }
       const email = 'builder_' + Math.random().toString(36).slice(2, 8) + '@griot.africa';
-      const res = await fetch('/api/v1/auth/register', {
+      const res = await griotFetch('/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        skipAuth: true,
+        body: {
           email,
           displayName: 'GRIOT Builder',
           password: 'GriotBuilderPassword2026!'
-        })
+        }
       });
-      const json = await res.json();
-      if (json.success && json.data && json.data.accessToken) {
-        sessionToken = json.data.accessToken;
-        localStorage.setItem('griot_v1_jwt', sessionToken);
+      if (res.ok && res.data && res.data.accessToken) {
+        sessionToken = res.data.accessToken;
+        try {
+          localStorage.setItem('griot_v1_jwt', sessionToken);
+        } catch {
+          // Ignore storage errors
+        }
       }
       return sessionToken;
     }
@@ -724,13 +1084,9 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     async function loadConversationsSidebar() {
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/conversations', {
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      const json = await res.json();
-      if (!json.success) return;
-      const list = json.data.conversations || [];
+      const res = await griotFetch('/conversations', { method: 'GET' });
+      if (!res.ok || !res.data) return;
+      const list = res.data.conversations || [];
       const container = document.getElementById('conv-sidebar-list');
       container.innerHTML = '';
       if (list.length === 0) {
@@ -758,15 +1114,13 @@ export function renderGriotWebInterfaceHtml(): string {
 
     async function loadConversationHistory(convId) {
       activeConversationId = convId;
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/conversations/' + convId + '/messages', {
-        headers: { 'Authorization': 'Bearer ' + token }
+      const res = await griotFetch('/conversations/' + encodeURIComponent(convId) + '/messages', {
+        method: 'GET'
       });
-      const json = await res.json();
-      if (!json.success) return;
+      if (!res.ok || !res.data) return;
       const chatBox = document.getElementById('chat-messages');
       chatBox.innerHTML = '';
-      (json.data.messages || []).forEach(m => {
+      (res.data.messages || []).forEach(m => {
         const div = document.createElement('div');
         div.className = 'msg-bubble ' + (m.role === 'user' ? 'msg-user' : 'msg-assistant');
         div.textContent = m.content;
@@ -793,36 +1147,30 @@ export function renderGriotWebInterfaceHtml(): string {
       btn.textContent = 'Thinking...';
 
       try {
-        const token = await ensureDemoSession();
         const productModule = document.getElementById('ask-module').value;
-
-        const res = await fetch('/api/v1/chat/completions', {
+        const res = await griotFetch('/chat/completions', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
-          },
-          body: JSON.stringify({
+          timeoutMs: 45000,
+          body: {
             prompt,
             productModule,
             conversationId: activeConversationId || undefined,
             createConversationIfMissing: true
-          })
+          }
         });
-        const json = await res.json();
         const botDiv = document.createElement('div');
         botDiv.className = 'msg-bubble msg-assistant';
-        if (json.success) {
-          activeConversationId = json.data.conversationId;
-          botDiv.textContent = json.data.content;
+        if (res.ok && res.data) {
+          activeConversationId = res.data.conversationId;
+          botDiv.textContent = res.data.content;
           const meta = document.createElement('div');
           meta.className = 'msg-meta';
-          const v1Cat = json.data.v1Routing ? json.data.v1Routing.v1Category : json.data.routing.taskClassification;
-          meta.textContent = json.data.modelDisplayName + ' • ' + json.data.executionMode.toUpperCase() + ' • ' + v1Cat;
+          const v1Cat = res.data.v1Routing ? res.data.v1Routing.v1Category : res.data.routing.taskClassification;
+          meta.textContent = res.data.modelDisplayName + ' • ' + res.data.executionMode.toUpperCase() + ' • ' + v1Cat;
           botDiv.appendChild(meta);
           loadConversationsSidebar();
         } else {
-          botDiv.textContent = 'Error: ' + (json.error ? json.error.message : 'Request failed');
+          botDiv.textContent = 'Error: ' + (res.error ? res.error.message : 'Request failed');
         }
         chatBox.appendChild(botDiv);
         chatBox.scrollTop = chatBox.scrollHeight;
@@ -833,13 +1181,9 @@ export function renderGriotWebInterfaceHtml(): string {
     }
 
     async function loadSavedProjectsBar() {
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/builder/projects', {
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      const json = await res.json();
-      if (!json.success) return;
-      const projects = json.data.projects || [];
+      const res = await griotFetch('/builder/projects', { method: 'GET' });
+      if (!res.ok || !res.data) return;
+      const projects = res.data.projects || [];
       const bar = document.getElementById('saved-projects-bar');
       const select = document.getElementById('saved-projects-select');
       if (projects.length === 0) {
@@ -859,13 +1203,11 @@ export function renderGriotWebInterfaceHtml(): string {
 
     async function resumeSelectedProject(projectId) {
       if (!projectId) return;
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/builder/projects/' + projectId, {
-        headers: { 'Authorization': 'Bearer ' + token }
+      const res = await griotFetch('/builder/projects/' + encodeURIComponent(projectId), {
+        method: 'GET'
       });
-      const json = await res.json();
-      if (json.success) {
-        renderProjectWorkspace(json.data);
+      if (res.ok && res.data) {
+        renderProjectWorkspace(res.data);
       }
     }
 
@@ -879,25 +1221,20 @@ export function renderGriotWebInterfaceHtml(): string {
       btn.textContent = 'Generating Build Plan...';
 
       try {
-        const token = await ensureDemoSession();
-        const res = await fetch('/api/v1/builder/projects', {
+        const res = await griotFetch('/builder/projects', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
-          },
-          body: JSON.stringify({
+          timeoutMs: 45000,
+          body: {
             ideaDescription: idea,
             technicalExperience,
             budgetConstraint
-          })
+          }
         });
-        const json = await res.json();
-        if (!json.success) {
-          return alert(json.error ? json.error.message : 'Could not create project');
+        if (!res.ok || !res.data) {
+          return alert(res.error ? res.error.message : 'Could not create project');
         }
         await loadSavedProjectsBar();
-        renderProjectWorkspace(json.data);
+        renderProjectWorkspace(res.data);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Generate My Guided Build Plan →';
@@ -1004,36 +1341,30 @@ export function renderGriotWebInterfaceHtml(): string {
     async function toggleDetailLevel() {
       if (!activeProject) return;
       const nextLevel = activeProject.detailLevel === 'beginner' ? 'technical' : 'beginner';
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/builder/projects/' + activeProject.id + '/detail-level', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify({ detailLevel: nextLevel })
-      });
-      const json = await res.json();
-      if (json.success) renderProjectWorkspace(json.data);
+      const res = await griotFetch(
+        '/builder/projects/' + encodeURIComponent(activeProject.id) + '/detail-level',
+        {
+          method: 'PATCH',
+          body: { detailLevel: nextLevel }
+        }
+      );
+      if (res.ok && res.data) renderProjectWorkspace(res.data);
     }
 
     async function submitStepSuccess() {
       if (!activeProject) return;
       const obs = document.getElementById('step-feedback-input').value.trim() || 'Step completed and verified in preview.';
       document.getElementById('step-feedback-input').value = '';
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/builder/projects/' + activeProject.id + '/submit-result', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify({ userObservation: obs, markApproved: true })
-      });
-      const json = await res.json();
-      if (json.success) {
+      const res = await griotFetch(
+        '/builder/projects/' + encodeURIComponent(activeProject.id) + '/submit-result',
+        {
+          method: 'POST',
+          body: { userObservation: obs, markApproved: true }
+        }
+      );
+      if (res.ok && res.data) {
         await loadSavedProjectsBar();
-        renderProjectWorkspace(json.data);
+        renderProjectWorkspace(res.data);
       }
     }
 
@@ -1042,23 +1373,20 @@ export function renderGriotWebInterfaceHtml(): string {
       const errText = document.getElementById('step-feedback-input').value.trim();
       if (!errText) return alert('Please paste or describe the error you saw.');
       document.getElementById('step-feedback-input').value = '';
-      const token = await ensureDemoSession();
-      const res = await fetch('/api/v1/builder/projects/' + activeProject.id + '/report-error', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify({ errorMessage: errText })
-      });
-      const json = await res.json();
-      if (json.success) {
+      const res = await griotFetch(
+        '/builder/projects/' + encodeURIComponent(activeProject.id) + '/report-error',
+        {
+          method: 'POST',
+          body: { errorMessage: errText }
+        }
+      );
+      if (res.ok && res.data) {
         await loadSavedProjectsBar();
-        renderProjectWorkspace(json.data);
+        renderProjectWorkspace(res.data);
       }
     }
 
-    checkLocalRuntime();
+    inspectBackendRuntime();
   </script>
 </body>
 </html>`;
