@@ -579,14 +579,63 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
 
     // Helper to instantiate the frontend script inside an isolated VM context
     function createFrontendVmHarness(customFetch: typeof globalThis.fetch, apiBaseUrl?: string) {
-      const storage = new Map<string, string>();
-      const elements: Record<
-        string,
-        { textContent: string; innerHTML: string; value: string; disabled: boolean; style: Record<string, string> }
-      > = {
-        'header-runtime-pill': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
-        'ask-runtime-subtitle': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
-        'header-brand-badge': { textContent: '', innerHTML: '', value: '', disabled: false, style: {} },
+      const localStore = new Map<string, string>();
+      const sessionStore = new Map<string, string>();
+      type MockEl = {
+        textContent: string;
+        innerHTML: string;
+        value: string;
+        disabled: boolean;
+        className: string;
+        style: Record<string, string>;
+        children: MockEl[];
+        classList: {
+          add: (c: string) => void;
+          remove: (c: string) => void;
+          toggle: (c: string) => void;
+          contains: (c: string) => boolean;
+        };
+        appendChild: (child: MockEl) => void;
+      };
+      const makeEl = (): MockEl => {
+        const classes = new Set<string>();
+        const el: MockEl = {
+          textContent: '',
+          innerHTML: '',
+          value: '',
+          disabled: false,
+          className: '',
+          style: {},
+          children: [],
+          classList: {
+            add: (c: string) => {
+              classes.add(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            remove: (c: string) => {
+              classes.delete(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            toggle: (c: string) => {
+              if (classes.has(c)) classes.delete(c);
+              else classes.add(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            contains: (c: string) => classes.has(c),
+          },
+          appendChild: (child: MockEl) => {
+            el.children.push(child);
+          },
+        };
+        return el;
+      };
+
+      const elements: Record<string, MockEl> = {
+        'header-runtime-pill': makeEl(),
+        'ask-runtime-subtitle': makeEl(),
+        'header-brand-badge': makeEl(),
+        'auth-modal-overlay': makeEl(),
+        'auth-feedback-banner': makeEl(),
       };
 
       const windowObj: Record<string, unknown> = {
@@ -603,6 +652,8 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
         setTimeout,
         clearTimeout,
         encodeURIComponent,
+        atob: (b64: string) => Buffer.from(b64, 'base64').toString('binary'),
+        Date,
         Math,
         Object,
         Array,
@@ -611,30 +662,39 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
         Promise,
         JSON,
         localStorage: {
-          getItem: (k: string) => storage.get(k) ?? null,
+          getItem: (k: string) => localStore.get(k) ?? null,
           setItem: (k: string, v: string) => {
-            storage.set(k, String(v));
+            localStore.set(k, String(v));
           },
           removeItem: (k: string) => {
-            storage.delete(k);
+            localStore.delete(k);
+          },
+        },
+        sessionStorage: {
+          getItem: (k: string) => sessionStore.get(k) ?? null,
+          setItem: (k: string, v: string) => {
+            sessionStore.set(k, String(v));
+          },
+          removeItem: (k: string) => {
+            sessionStore.delete(k);
           },
         },
         document: {
           getElementById: (id: string) => {
             if (!elements[id]) {
-              elements[id] = { textContent: '', innerHTML: '', value: '', disabled: false, style: {} };
+              elements[id] = makeEl();
             }
             return elements[id];
           },
           querySelectorAll: () => [],
-          createElement: () => ({ className: '', textContent: '', style: {}, appendChild: () => {} }),
+          createElement: () => makeEl(),
         },
       };
 
       // Prevent automatic boot call from racing before test assertions, then expose helpers
       const testableScript =
-        scriptSource.replace(/inspectBackendRuntime\(\);\s*$/, '') +
-        '\nglobalThis.__exports = { resolveApiBaseUrl, buildApiUrl, griotFetch, inspectBackendRuntime, ensureDemoSession };';
+        scriptSource.replace(/initializeApp\(\);\s*$/, '') +
+        '\nglobalThis.__exports = { resolveApiBaseUrl, buildApiUrl, griotFetch, inspectBackendRuntime, initializeApp, submitLogin, submitRegister, continueAsGuest, signOutUser, switchMode, openAuthModal, closeAuthModal, loadConversationsSidebar, loadSavedProjectsBar, getActiveSession, getStoredSessionToken, isJwtExpired };';
       vm.createContext(sandbox);
       vm.runInContext(testableScript, sandbox);
 
@@ -657,10 +717,28 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
             ollamaReachable?: boolean;
             firstLocalModel?: string | null;
           }>;
-          ensureDemoSession: (force?: boolean) => Promise<string | null>;
+          initializeApp: () => Promise<void>;
+          submitLogin: (ev?: unknown) => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          submitRegister: (ev?: unknown) => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          continueAsGuest: () => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          signOutUser: () => void;
+          switchMode: (mode: string) => Promise<void>;
+          openAuthModal: (mode?: string, msg?: string, type?: string) => void;
+          closeAuthModal: () => void;
+          loadConversationsSidebar: () => Promise<void>;
+          loadSavedProjectsBar: () => Promise<void>;
+          getActiveSession: () => {
+            token: string;
+            mode: string;
+            user: { id: string; displayName: string; email: string | null };
+            org: { id: string | null; name: string };
+          } | null;
+          getStoredSessionToken: () => string | null;
+          isJwtExpired: (token: string) => boolean;
         },
         elements,
-        storage,
+        localStore,
+        sessionStore,
         windowObj,
       };
     }
@@ -783,9 +861,9 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
       'Backend Ready • Local Ollama (qwen2.5:0.5b) Configured'
     );
 
-    // 6. Verify 401 stale-token recovery, 429, 503, timeout, and network error handling in griotFetch()
-    let seenAuthHeaders: string[] = [];
-    let failFirst401 = true;
+    // 6. Verify 401 handling (clears stale token, presents auth modal, NEVER retries expired token), 429, 503, timeout, and network errors
+    const seenAuthHeaders: string[] = [];
+    let conversationCalls = 0;
 
     const errorHarness = createFrontendVmHarness(async (input, init) => {
       const url = String(input);
@@ -794,45 +872,18 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
         seenAuthHeaders.push(headers['Authorization']);
       }
 
-      if (url.endsWith('/auth/register')) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            apiVersion: 'v1',
-            requestId: 'req_reg',
-            timestamp: new Date().toISOString(),
-            data: { accessToken: 'fresh_valid_jwt_token' },
-            error: null,
-          }),
-          { status: 201 }
-        );
-      }
-
       if (url.endsWith('/conversations')) {
-        if (failFirst401) {
-          failFirst401 = false;
-          return new Response(
-            JSON.stringify({
-              success: false,
-              apiVersion: 'v1',
-              requestId: 'req_401',
-              timestamp: new Date().toISOString(),
-              data: null,
-              error: { code: 'INVALID_JWT', message: 'Expired token' },
-            }),
-            { status: 401 }
-          );
-        }
+        conversationCalls++;
         return new Response(
           JSON.stringify({
-            success: true,
+            success: false,
             apiVersion: 'v1',
-            requestId: 'req_conv_ok',
+            requestId: 'req_401',
             timestamp: new Date().toISOString(),
-            data: { conversations: [{ id: 'conv_1', title: 'Test Chat' }] },
-            error: null,
+            data: null,
+            error: { code: 'INVALID_JWT', message: 'Expired token' },
           }),
-          { status: 200 }
+          { status: 401 }
         );
       }
 
@@ -877,12 +928,23 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
       throw new TypeError('Failed to fetch');
     });
 
-    // Seed an expired token -> griotFetch('/conversations') should hit 401, clear it, re-register once, and succeed
-    errorHarness.storage.set('griot_v1_jwt', 'stale_expired_jwt');
+    // Seed an invalid token -> griotFetch('/conversations') hits 401 ONCE, clears session, opens auth modal, and does NOT retry
+    errorHarness.sessionStore.set(
+      'griot_auth_session_v2',
+      JSON.stringify({
+        token: 'invalid_backend_jwt',
+        mode: 'authenticated',
+        user: { id: 'u1', displayName: 'Old User', email: 'old@griot.ai' },
+        org: { id: 'o1', name: 'Old Org' },
+      })
+    );
     const convResult = await errorHarness.exports.griotFetch('/conversations');
-    assert.equal(convResult.ok, true);
-    assert.equal(seenAuthHeaders[0], 'Bearer stale_expired_jwt');
-    assert.equal(seenAuthHeaders[1], 'Bearer fresh_valid_jwt_token');
+    assert.equal(convResult.ok, false);
+    assert.equal(convResult.status, 401);
+    assert.equal(conversationCalls, 1, 'Must NOT repeatedly retry an invalid/expired token');
+    assert.equal(seenAuthHeaders[0], 'Bearer invalid_backend_jwt');
+    assert.equal(errorHarness.exports.getStoredSessionToken(), null);
+    assert.equal(errorHarness.elements['auth-modal-overlay'].classList.contains('open'), true);
 
     // 429 handling
     const res429 = await errorHarness.exports.griotFetch('/rate-limited', { skipAuth: true });
@@ -916,5 +978,332 @@ describe('GRIOT AI — V1 Guided Builder, V1 Task Router & Result Validation Sui
     const unreachableStatus = await errorHarness.exports.inspectBackendRuntime();
     assert.equal(unreachableStatus.reachable, false);
     assert.equal(errorHarness.elements['header-runtime-pill'].textContent, 'Backend Unreachable');
+  });
+
+  it('5. Stage 2 Frontend Authentication: Registration, Login, Invalid Credentials, Expired JWT Recovery, Guest Access, Logout/Switching & Data Isolation', async () => {
+    const core = new GriotCore({
+      config: {
+        env: 'test',
+        sqlitePath: ':memory:',
+        privateStorageDir: path.join(tmpDir, 'vault-stage2-auth'),
+      },
+    });
+    const server = new GriotHttpServer(core);
+    const port = await server.listen(0, '127.0.0.1');
+    const apiBaseUrl = `http://127.0.0.1:${port}/api/v1`;
+
+    const html = renderGriotWebInterfaceHtml();
+    const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(scriptMatch, 'Expected inline <script> in griotAppHtml.ts');
+    const scriptSource = scriptMatch[1];
+
+    // Confirm Stage 2 modal & account controls exist in DOM
+    assert.ok(html.includes('id="auth-modal-overlay"'));
+    assert.ok(html.includes('id="auth-form-login"'));
+    assert.ok(html.includes('id="auth-form-register"'));
+    assert.ok(html.includes('id="guest-access-btn"'));
+    assert.ok(html.includes('id="header-account-menu"'));
+    assert.ok(html.includes('id="sign-out-btn"'));
+
+    function createLiveVmClient() {
+      const localStore = new Map<string, string>();
+      const sessionStore = new Map<string, string>();
+      type MockEl = {
+        textContent: string;
+        innerHTML: string;
+        value: string;
+        disabled: boolean;
+        className: string;
+        style: Record<string, string>;
+        children: MockEl[];
+        classList: {
+          add: (c: string) => void;
+          remove: (c: string) => void;
+          toggle: (c: string) => void;
+          contains: (c: string) => boolean;
+        };
+        appendChild: (child: MockEl) => void;
+      };
+      const makeEl = (): MockEl => {
+        const classes = new Set<string>();
+        const el: MockEl = {
+          textContent: '',
+          innerHTML: '',
+          value: '',
+          disabled: false,
+          className: '',
+          style: {},
+          children: [],
+          classList: {
+            add: (c: string) => {
+              classes.add(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            remove: (c: string) => {
+              classes.delete(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            toggle: (c: string) => {
+              if (classes.has(c)) classes.delete(c);
+              else classes.add(c);
+              el.className = Array.from(classes).join(' ');
+            },
+            contains: (c: string) => classes.has(c),
+          },
+          appendChild: (child: MockEl) => {
+            el.children.push(child);
+          },
+        };
+        return el;
+      };
+
+      const elements: Record<string, MockEl> = {};
+      const getEl = (id: string) => {
+        if (!elements[id]) elements[id] = makeEl();
+        return elements[id];
+      };
+
+      let fetchCallLog: string[] = [];
+      const trackedFetch: typeof globalThis.fetch = async (input, init) => {
+        fetchCallLog.push(`${(init?.method || 'GET').toUpperCase()} ${String(input)}`);
+        return globalThis.fetch(input, init);
+      };
+
+      const sandbox: Record<string, unknown> = {
+        window: {
+          location: { protocol: 'http:' },
+          GRIOT_API_BASE_URL: apiBaseUrl,
+        },
+        fetch: trackedFetch,
+        AbortController,
+        setTimeout,
+        clearTimeout,
+        encodeURIComponent,
+        atob: (b64: string) => Buffer.from(b64, 'base64').toString('binary'),
+        Date,
+        Math,
+        Object,
+        Array,
+        String,
+        Boolean,
+        Promise,
+        JSON,
+        localStorage: {
+          getItem: (k: string) => localStore.get(k) ?? null,
+          setItem: (k: string, v: string) => localStore.set(k, String(v)),
+          removeItem: (k: string) => localStore.delete(k),
+        },
+        sessionStorage: {
+          getItem: (k: string) => sessionStore.get(k) ?? null,
+          setItem: (k: string, v: string) => sessionStore.set(k, String(v)),
+          removeItem: (k: string) => sessionStore.delete(k),
+        },
+        document: {
+          getElementById: getEl,
+          querySelectorAll: () => [],
+          createElement: () => makeEl(),
+        },
+      };
+
+      const testableScript =
+        scriptSource.replace(/initializeApp\(\);\s*$/, '') +
+        '\nglobalThis.__exports = { initializeApp, submitRegister, submitLogin, continueAsGuest, signOutUser, switchMode, griotFetch, getActiveSession, getStoredSessionToken, isJwtExpired, loadConversationsSidebar, loadSavedProjectsBar };';
+      vm.createContext(sandbox);
+      vm.runInContext(testableScript, sandbox);
+
+      return {
+        exports: sandbox.__exports as {
+          initializeApp: () => Promise<void>;
+          submitRegister: (ev?: unknown) => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          submitLogin: (ev?: unknown) => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          continueAsGuest: () => Promise<{ ok: boolean; status?: number; error?: { code: string; message: string } | null }>;
+          signOutUser: () => void;
+          switchMode: (mode: string) => Promise<void>;
+          griotFetch: (ep: string, opts?: Record<string, unknown>) => Promise<{
+            ok: boolean;
+            status: number;
+            data: unknown;
+            error: { code: string; message: string } | null;
+          }>;
+          getActiveSession: () => {
+            token: string;
+            mode: string;
+            user: { id: string; displayName: string; email: string | null };
+            org: { id: string | null; name: string };
+          } | null;
+          getStoredSessionToken: () => string | null;
+          isJwtExpired: (token: string) => boolean;
+          loadConversationsSidebar: () => Promise<void>;
+          loadSavedProjectsBar: () => Promise<void>;
+        },
+        getEl,
+        localStore,
+        sessionStore,
+        fetchCallLog,
+      };
+    }
+
+    try {
+      const client = createLiveVmClient();
+
+      // 1. On initial visit, initializeApp() must NOT silently register a disposable account
+      await client.exports.initializeApp();
+      assert.equal(client.exports.getActiveSession(), null);
+      assert.equal(
+        client.fetchCallLog.some((c) => c.includes('/auth/register')),
+        false,
+        'Must not silently create disposable accounts on page load'
+      );
+
+      // 2. Successful registration (first verify password-confirmation mismatch is blocked client-side)
+      client.getEl('register-name').value = 'Amina Okafor';
+      client.getEl('register-email').value = 'amina@griot.africa';
+      client.getEl('register-password').value = 'StrongPass123!';
+      client.getEl('register-confirm-password').value = 'MismatchPass123!';
+      const mismatchRes = await client.exports.submitRegister();
+      assert.equal(mismatchRes.ok, false);
+      assert.match(client.getEl('auth-feedback-banner').textContent, /do not match/i);
+
+      client.getEl('register-confirm-password').value = 'StrongPass123!';
+      const regRes = await client.exports.submitRegister();
+      assert.equal(regRes.ok, true);
+      const userASession = client.exports.getActiveSession();
+      assert.ok(userASession);
+      assert.equal(userASession.mode, 'authenticated');
+      assert.equal(userASession.user.displayName, 'Amina Okafor');
+      assert.equal(userASession.user.email, 'amina@griot.africa');
+      assert.ok(userASession.org.name.includes('Amina Okafor'));
+      assert.equal(client.getEl('account-user-name').textContent, 'Amina Okafor');
+      assert.equal(client.getEl('account-org-name').textContent, userASession.org.name);
+      assert.equal(client.getEl('register-password').value, '');
+
+      // Create a private conversation and a private Guided Builder project as User A
+      const convARes = await client.exports.griotFetch('/conversations', {
+        method: 'POST',
+        body: { title: 'Amina Private Strategy Chat' },
+      });
+      assert.equal(convARes.ok, true);
+      const convAId = (convARes.data as { id: string }).id;
+
+      const projARes = await client.exports.griotFetch('/builder/projects', {
+        method: 'POST',
+        body: {
+          ideaDescription: 'Private e-commerce website for Amina Textiles with custom orders',
+          technicalExperience: 'complete_beginner',
+          budgetConstraint: 'free_only',
+        },
+      });
+      assert.equal(projARes.ok, true);
+      const projAId = (projARes.data as { id: string }).id;
+
+      await client.exports.loadConversationsSidebar();
+      await client.exports.loadSavedProjectsBar();
+      assert.equal(client.getEl('saved-projects-bar').style.display, 'block');
+
+      // 3. Logout clears sessionStorage and cached DOM conversation/project state
+      client.exports.signOutUser();
+      assert.equal(client.exports.getActiveSession(), null);
+      assert.equal(client.sessionStore.size, 0);
+      assert.equal(client.getEl('saved-projects-bar').style.display, 'none');
+      assert.equal(client.getEl('saved-projects-select').innerHTML, '');
+
+      // 4. Invalid credentials rejected with 401 and clear user-facing error
+      client.getEl('login-email').value = 'amina@griot.africa';
+      client.getEl('login-password').value = 'WrongPassword999!';
+      const badLogin = await client.exports.submitLogin();
+      assert.equal(badLogin.ok, false);
+      assert.equal(badLogin.status, 401);
+      assert.match(client.getEl('auth-feedback-banner').textContent, /Invalid email or password/i);
+      assert.equal(client.exports.getActiveSession(), null);
+
+      // 5. Successful login restores User A session and hydrates organisation from /organisations/current
+      client.getEl('login-password').value = 'StrongPass123!';
+      const goodLogin = await client.exports.submitLogin();
+      assert.equal(goodLogin.ok, true);
+      assert.equal(client.exports.getActiveSession()?.user.email, 'amina@griot.africa');
+      assert.ok(client.getEl('account-org-name').textContent.includes('Amina Okafor'));
+
+      // 6. Expired JWT recovery (past exp detected without retrying expired token, session cleared, login modal opened)
+      const expiredHeader = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+      const expiredPayload = Buffer.from(
+        JSON.stringify({ sub: userASession.user.id, orgId: userASession.org.id, exp: Math.floor(Date.now() / 1000) - 60 })
+      ).toString('base64url');
+      const expiredJwt = `${expiredHeader}.${expiredPayload}.invalid_sig`;
+      assert.equal(client.exports.isJwtExpired(expiredJwt), true);
+      client.sessionStore.set(
+        'griot_auth_session_v2',
+        JSON.stringify({ ...userASession, token: expiredJwt })
+      );
+      // Force reload from sessionStore via a fresh VM client sharing the expired session
+      const clientWithExpired = createLiveVmClient();
+      clientWithExpired.sessionStore.set(
+        'griot_auth_session_v2',
+        JSON.stringify({ ...userASession, token: expiredJwt })
+      );
+      const callsBefore = clientWithExpired.fetchCallLog.length;
+      const expiredCall = await clientWithExpired.exports.griotFetch('/conversations');
+      assert.equal(expiredCall.ok, false);
+      assert.equal(expiredCall.status, 401);
+      assert.equal(expiredCall.error?.code, 'SESSION_EXPIRED');
+      assert.equal(
+        clientWithExpired.fetchCallLog.length,
+        callsBefore,
+        'Already-expired JWT should be cleared client-side without sending/retrying it'
+      );
+      assert.equal(clientWithExpired.exports.getActiveSession(), null);
+      assert.equal(
+        clientWithExpired.getEl('auth-modal-overlay').classList.contains('open'),
+        true
+      );
+
+      // 7. Account switching to User B + Explicit Guest Access & strict Conversation/Project Isolation
+      client.exports.signOutUser();
+      client.getEl('register-name').value = 'Kwame Boateng';
+      client.getEl('register-email').value = 'kwame@griot.africa';
+      client.getEl('register-password').value = 'KwamePass456!';
+      client.getEl('register-confirm-password').value = 'KwamePass456!';
+      const regB = await client.exports.submitRegister();
+      assert.equal(regB.ok, true);
+      assert.equal(client.exports.getActiveSession()?.user.displayName, 'Kwame Boateng');
+
+      // User B sees 0 of User A's conversations and 0 of User A's builder projects
+      const convListB = await client.exports.griotFetch('/conversations');
+      assert.equal(convListB.ok, true);
+      assert.equal((convListB.data as { conversations: unknown[] }).conversations.length, 0);
+
+      const projListB = await client.exports.griotFetch('/builder/projects');
+      assert.equal(projListB.ok, true);
+      assert.equal((projListB.data as { projects: unknown[] }).projects.length, 0);
+
+      // Direct cross-tenant access by User B to User A's records is denied (403 TENANT_ISOLATION_DENIED)
+      const stealConvB = await client.exports.griotFetch(`/conversations/${convAId}`);
+      assert.equal(stealConvB.ok, false);
+      assert.equal(stealConvB.status, 403);
+      assert.equal(stealConvB.error?.code, 'TENANT_ISOLATION_DENIED');
+
+      const stealProjB = await client.exports.griotFetch(`/builder/projects/${projAId}`);
+      assert.equal(stealProjB.ok, false);
+      assert.equal(stealProjB.status, 403);
+      assert.equal(stealProjB.error?.code, 'TENANT_ISOLATION_DENIED');
+
+      // Explicit Guest access creates isolated guest session that also cannot access User A's records
+      client.exports.signOutUser();
+      const guestRes = await client.exports.continueAsGuest();
+      assert.equal(guestRes.ok, true);
+      assert.equal(client.exports.getActiveSession()?.mode, 'guest');
+      assert.equal(client.getEl('account-trigger-label').textContent, 'Guest');
+      assert.equal(client.getEl('account-mode-badge').textContent, 'Guest Access (Freemium)');
+
+      const guestStealConv = await client.exports.griotFetch(`/conversations/${convAId}`);
+      assert.equal(guestStealConv.ok, false);
+      assert.equal(guestStealConv.status, 403);
+
+      const guestStealProj = await client.exports.griotFetch(`/builder/projects/${projAId}`);
+      assert.equal(guestStealProj.ok, false);
+      assert.equal(guestStealProj.status, 403);
+    } finally {
+      await server.close();
+      core.close();
+    }
   });
 });

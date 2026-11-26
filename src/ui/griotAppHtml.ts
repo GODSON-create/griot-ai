@@ -432,6 +432,280 @@ export function renderGriotWebInterfaceHtml(): string {
       color: var(--text-primary);
       background: rgba(255,107,43,0.1);
     }
+
+    /* Stage 2: Authentication Modal & Header Account Menu */
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .auth-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .account-menu-wrap {
+      position: relative;
+      display: none;
+    }
+
+    .account-menu-wrap.visible {
+      display: inline-block;
+    }
+
+    .account-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      border-radius: 999px;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .account-trigger:hover {
+      border-color: var(--accent-amber);
+      background: rgba(255, 107, 43, 0.12);
+    }
+
+    .account-avatar-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-orange), var(--accent-amber));
+      color: #09090d;
+      font-size: 0.72rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .account-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 0.5rem);
+      width: 270px;
+      background: rgba(16, 16, 24, 0.96);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 1rem;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+      z-index: 60;
+    }
+
+    .account-dropdown.open {
+      display: block;
+    }
+
+    .account-dropdown-name {
+      font-size: 0.94rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.15rem;
+      word-break: break-word;
+    }
+
+    .account-dropdown-email {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.65rem;
+      word-break: break-all;
+    }
+
+    .account-dropdown-meta {
+      padding: 0.55rem 0.7rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-neutral);
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.8rem;
+    }
+
+    .account-dropdown-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .auth-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 5, 10, 0.78);
+      backdrop-filter: blur(10px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .auth-modal-overlay.open {
+      display: flex;
+    }
+
+    .auth-modal-card {
+      width: 100%;
+      max-width: 440px;
+      max-height: 92vh;
+      overflow-y: auto;
+      background: rgba(18, 18, 27, 0.94);
+      border: 1px solid var(--border-subtle);
+      border-radius: 22px;
+      padding: 1.65rem;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.68), 0 0 32px rgba(255, 107, 43, 0.14);
+      position: relative;
+    }
+
+    .auth-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .auth-close-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-neutral);
+      color: var(--text-secondary);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .auth-close-btn:hover {
+      color: var(--text-primary);
+      border-color: var(--accent-amber);
+    }
+
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .auth-tab-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-neutral);
+      color: var(--text-secondary);
+      border-radius: 10px;
+      padding: 0.55rem 0.75rem;
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .auth-tab-btn.active {
+      background: linear-gradient(135deg, var(--accent-orange), var(--accent-amber));
+      color: #09090d;
+      border-color: transparent;
+    }
+
+    .auth-feedback {
+      display: none;
+      padding: 0.65rem 0.85rem;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      margin-bottom: 0.9rem;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+    }
+
+    .auth-feedback.visible {
+      display: block;
+    }
+
+    .auth-feedback.info {
+      border-color: rgba(245, 158, 11, 0.4);
+      background: rgba(245, 158, 11, 0.12);
+      color: #fde68a;
+    }
+
+    .auth-field {
+      margin-bottom: 0.85rem;
+    }
+
+    .auth-field label {
+      display: block;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      font-weight: 700;
+      margin-bottom: 0.32rem;
+    }
+
+    input[type="email"], input[type="password"] {
+      background: rgba(12, 12, 18, 0.85);
+      border: 1px solid var(--border-neutral);
+      color: var(--text-primary);
+      border-radius: 12px;
+      padding: 0.72rem 0.95rem;
+      font-size: 0.92rem;
+      font-family: inherit;
+      width: 100%;
+    }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.15rem 0 0.95rem;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .auth-divider::before, .auth-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border-neutral);
+    }
+
+    .auth-guest-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-neutral);
+      border-radius: 14px;
+      padding: 0.9rem;
+      text-align: center;
+    }
+
+    .auth-guest-card p {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.65rem;
+    }
+
+    @media (max-width: 640px) {
+      header {
+        padding: 0.85rem 1rem;
+      }
+      .auth-modal-card {
+        padding: 1.2rem;
+      }
+      .account-dropdown {
+        width: 245px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -442,10 +716,35 @@ export function renderGriotWebInterfaceHtml(): string {
       <span class="brand-badge" onclick="toggleBrandMode()" id="header-brand-badge" title="Click to toggle standalone vs ecosystem branding">Powered by Avantage</span>
       <span class="runtime-pill" id="header-runtime-pill">Checking Backend Readiness...</span>
     </div>
-    <div class="nav-tabs">
-      <button class="tab-btn active" onclick="switchMode('home')" id="tab-home">Home</button>
-      <button class="tab-btn" onclick="switchMode('ask')" id="tab-ask">ASK GRIOT</button>
-      <button class="tab-btn" onclick="switchMode('build')" id="tab-build">BUILD WITH GRIOT</button>
+    <div class="header-right">
+      <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchMode('home')" id="tab-home">Home</button>
+        <button class="tab-btn" onclick="switchMode('ask')" id="tab-ask">ASK GRIOT</button>
+        <button class="tab-btn" onclick="switchMode('build')" id="tab-build">BUILD WITH GRIOT</button>
+      </div>
+      <div class="auth-header-controls" id="header-auth-controls">
+        <button class="btn-secondary" style="padding:0.45rem 0.9rem; font-size:0.82rem;" onclick="openAuthModal('login')" id="open-login-btn">Sign In</button>
+        <button class="btn-primary" style="padding:0.45rem 0.95rem; font-size:0.82rem;" onclick="openAuthModal('register')" id="open-register-btn">Create Account</button>
+      </div>
+      <div class="account-menu-wrap" id="header-account-menu">
+        <button class="account-trigger" onclick="toggleAccountDropdown()" id="account-menu-btn" type="button">
+          <span class="account-avatar-dot" id="account-avatar-initial">G</span>
+          <span id="account-trigger-label">Account</span>
+          <span style="font-size:0.7rem; color:var(--text-secondary);">&#9662;</span>
+        </button>
+        <div class="account-dropdown" id="account-dropdown">
+          <div class="account-dropdown-name" id="account-user-name">User</div>
+          <div class="account-dropdown-email" id="account-user-email">user@griot.ai</div>
+          <div class="account-dropdown-meta">
+            <div><strong style="color:var(--text-primary);">Organisation:</strong> <span id="account-org-name">Personal Organisation</span></div>
+            <div style="margin-top:0.25rem;"><strong style="color:var(--text-primary);">Session:</strong> <span id="account-mode-badge">Authenticated</span></div>
+          </div>
+          <div class="account-dropdown-actions">
+            <button class="btn-primary" style="width:100%; justify-content:center; padding:0.55rem 0.9rem; font-size:0.82rem; display:none;" onclick="openAuthModal('register')" id="account-upgrade-btn" type="button">Sign In / Create Account</button>
+            <button class="btn-secondary" style="width:100%; padding:0.55rem 0.9rem; font-size:0.82rem;" onclick="signOutUser()" id="sign-out-btn" type="button">Sign Out</button>
+          </div>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -660,12 +959,81 @@ export function renderGriotWebInterfaceHtml(): string {
     </section>
   </main>
 
+  <!-- STAGE 2: GLASSMORPHIC AUTHENTICATION MODAL -->
+  <div class="auth-modal-overlay" id="auth-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div class="auth-modal-card">
+      <div class="auth-modal-header">
+        <div style="display:flex; align-items:center; gap:0.55rem;">
+          <div class="brand-orb-mini" style="width:20px; height:20px;"></div>
+          <h2 id="auth-modal-title" style="font-size:1.1rem; font-weight:700;">Sign in to GRIOT AI</h2>
+        </div>
+        <button class="auth-close-btn" type="button" onclick="closeAuthModal()" id="auth-close-btn" aria-label="Close authentication modal">&times;</button>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" type="button" onclick="setAuthModalMode('login')" id="auth-tab-login">Sign In</button>
+        <button class="auth-tab-btn" type="button" onclick="setAuthModalMode('register')" id="auth-tab-register">Create Account</button>
+      </div>
+
+      <div class="auth-feedback" id="auth-feedback-banner" role="alert"></div>
+
+      <!-- Sign In Form -->
+      <form id="auth-form-login" onsubmit="submitLogin(event)" novalidate>
+        <div class="auth-field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" autocomplete="email" placeholder="you@company.com" required />
+        </div>
+        <div class="auth-field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter your password" required />
+        </div>
+        <button class="btn-primary" type="submit" id="login-submit-btn" style="width:100%; justify-content:center; padding:0.75rem 1rem;">Sign In</button>
+      </form>
+
+      <!-- Create Account Form -->
+      <form id="auth-form-register" onsubmit="submitRegister(event)" style="display:none;" novalidate>
+        <div class="auth-field">
+          <label for="register-name">Display Name</label>
+          <input type="text" id="register-name" autocomplete="name" placeholder="Your full name" required />
+        </div>
+        <div class="auth-field">
+          <label for="register-email">Email</label>
+          <input type="email" id="register-email" autocomplete="email" placeholder="you@company.com" required />
+        </div>
+        <div class="auth-field">
+          <label for="register-password">Password (min 8 characters)</label>
+          <input type="password" id="register-password" autocomplete="new-password" placeholder="Create a strong password" required />
+        </div>
+        <div class="auth-field">
+          <label for="register-confirm-password">Confirm Password</label>
+          <input type="password" id="register-confirm-password" autocomplete="new-password" placeholder="Re-enter your password" required />
+        </div>
+        <button class="btn-primary" type="submit" id="register-submit-btn" style="width:100%; justify-content:center; padding:0.75rem 1rem;">Create Account</button>
+      </form>
+
+      <div class="auth-divider">or</div>
+
+      <!-- Explicit Guest / Freemium Option -->
+      <div class="auth-guest-card">
+        <p>Want to try GRIOT first without creating a permanent account?</p>
+        <button class="btn-secondary" type="button" onclick="continueAsGuest()" id="guest-access-btn" style="width:100%;">Continue as Guest &mdash; Explore GRIOT</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const DEFAULT_REMOTE_API_BASE_URL = 'https://griot-ai.onrender.com/api/v1';
+    const AUTH_SESSION_STORAGE_KEY = 'griot_auth_session_v2';
+    const LEGACY_JWT_STORAGE_KEY = 'griot_v1_jwt';
+
+    let activeSession = null;
     let sessionToken = null;
+    let activeMode = 'home';
     let activeConversationId = null;
     let activeProject = null;
     let brandEcosystem = true;
+    let authModalMode = 'login';
+    let authSubmitting = false;
 
     const PROVIDER_LABELS = {
       gemini: 'Gemini',
@@ -719,13 +1087,124 @@ export function renderGriotWebInterfaceHtml(): string {
       return base + cleanPath;
     }
 
-    function getStoredSessionToken() {
-      if (sessionToken) return sessionToken;
+    function isValidEmailFormat(email) {
+      const s = String(email || '').trim();
+      if (!s || s.indexOf(' ') !== -1) return false;
+      const atIdx = s.indexOf('@');
+      if (atIdx <= 0) return false;
+      const domain = s.slice(atIdx + 1);
+      const dotIdx = domain.lastIndexOf('.');
+      return dotIdx > 0 && dotIdx < domain.length - 1;
+    }
+
+    function decodeJwtPayloadUnsafe(token) {
+      if (typeof token !== 'string') return null;
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
       try {
-        const stored = localStorage.getItem('griot_v1_jwt');
-        if (stored) {
-          sessionToken = stored;
-          return sessionToken;
+        let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (base64.length % 4 !== 0) {
+          base64 += '=';
+        }
+        if (typeof atob !== 'function') return null;
+        return JSON.parse(atob(base64));
+      } catch {
+        return null;
+      }
+    }
+
+    function isJwtExpired(token) {
+      const payload = decodeJwtPayloadUnsafe(token);
+      if (!payload || typeof payload.exp !== 'number') {
+        return false;
+      }
+      const nowSec = Math.floor(Date.now() / 1000);
+      return payload.exp <= nowSec + 5;
+    }
+
+    function persistAuthSession(session) {
+      activeSession = session;
+      sessionToken = session ? session.token : null;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (session) {
+            sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+          } else {
+            sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+          }
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      try {
+        localStorage.removeItem(LEGACY_JWT_STORAGE_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+      renderAuthHeader();
+    }
+
+    function clearStoredSessionToken() {
+      activeSession = null;
+      sessionToken = null;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      try {
+        localStorage.removeItem(LEGACY_JWT_STORAGE_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+      renderAuthHeader();
+    }
+
+    function getActiveSession() {
+      if (activeSession && activeSession.token) {
+        return activeSession;
+      }
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          const raw = sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.token === 'string' && parsed.token.trim()) {
+              activeSession = parsed;
+              sessionToken = parsed.token;
+              return activeSession;
+            }
+          }
+        }
+      } catch {
+        // Ignore malformed storage
+      }
+      // Backward-compatible migration of valid non-expired legacy token if present
+      try {
+        const legacyToken = localStorage.getItem(LEGACY_JWT_STORAGE_KEY);
+        if (legacyToken && legacyToken.trim()) {
+          if (isJwtExpired(legacyToken)) {
+            localStorage.removeItem(LEGACY_JWT_STORAGE_KEY);
+            return null;
+          }
+          const claims = decodeJwtPayloadUnsafe(legacyToken);
+          const migrated = {
+            token: legacyToken.trim(),
+            mode: 'authenticated',
+            user: {
+              id: claims && claims.sub ? String(claims.sub) : 'session_user',
+              displayName: 'GRIOT User',
+              email: ''
+            },
+            org: {
+              id: claims && claims.orgId ? String(claims.orgId) : null,
+              name: ''
+            }
+          };
+          persistAuthSession(migrated);
+          return activeSession;
         }
       } catch {
         // Ignore storage errors
@@ -733,12 +1212,66 @@ export function renderGriotWebInterfaceHtml(): string {
       return null;
     }
 
-    function clearStoredSessionToken() {
-      sessionToken = null;
-      try {
-        localStorage.removeItem('griot_v1_jwt');
-      } catch {
-        // Ignore storage errors
+    function getStoredSessionToken() {
+      const sess = getActiveSession();
+      return sess ? sess.token : null;
+    }
+
+    function resetAccountScopedUiState() {
+      activeConversationId = null;
+      activeProject = null;
+
+      const convSidebar = document.getElementById('conv-sidebar-list');
+      if (convSidebar) {
+        convSidebar.innerHTML = '<div class="conv-list-item active">New Session</div>';
+      }
+
+      const chatBox = document.getElementById('chat-messages');
+      if (chatBox) {
+        chatBox.innerHTML =
+          '<div class="msg-bubble msg-assistant">Welcome to <strong>ASK GRIOT</strong>. Ask me any question, request a summary or business draft, or explore entrepreneurship, financial education, engineering, and technology.</div>';
+      }
+
+      const savedBar = document.getElementById('saved-projects-bar');
+      if (savedBar) savedBar.style.display = 'none';
+
+      const savedSelect = document.getElementById('saved-projects-select');
+      if (savedSelect) savedSelect.innerHTML = '';
+
+      const intakeCard = document.getElementById('builder-intake-card');
+      if (intakeCard) intakeCard.style.display = 'block';
+
+      const workspace = document.getElementById('builder-workspace');
+      if (workspace) workspace.style.display = 'none';
+
+      const buildIdea = document.getElementById('build-idea');
+      if (buildIdea) buildIdea.value = '';
+
+      const feedbackInput = document.getElementById('step-feedback-input');
+      if (feedbackInput) feedbackInput.value = '';
+
+      const wsTitle = document.getElementById('ws-title');
+      if (wsTitle) wsTitle.textContent = 'Project Title';
+
+      const wsStepList = document.getElementById('ws-step-list');
+      if (wsStepList) wsStepList.innerHTML = '';
+
+      const wsSpec = document.getElementById('ws-spec-features');
+      if (wsSpec) wsSpec.innerHTML = '';
+
+      const promptBox = document.getElementById('step-prompt-box');
+      if (promptBox) promptBox.textContent = '';
+    }
+
+    function handleUnauthorizedSession(noticeMessage, showModal = true) {
+      clearStoredSessionToken();
+      resetAccountScopedUiState();
+      if (showModal) {
+        openAuthModal(
+          'login',
+          noticeMessage || 'Your session expired or is no longer valid. Please sign in again.',
+          'info'
+        );
       }
     }
 
@@ -749,13 +1282,41 @@ export function renderGriotWebInterfaceHtml(): string {
       const headers = Object.assign({}, options.headers || {});
 
       if (!skipAuth) {
-        let token = getStoredSessionToken();
-        if (!token && options.autoSession !== false) {
-          token = await ensureDemoSession();
+        const token = getStoredSessionToken();
+        if (!token) {
+          if (options.promptOnUnauth !== false) {
+            openAuthModal('login', 'Sign in, create an account, or continue as Guest to use GRIOT.', 'info');
+          }
+          return {
+            ok: false,
+            status: 401,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'AUTH_REQUIRED',
+              message: 'Please sign in or continue as Guest to continue.',
+              retryable: false
+            }
+          };
         }
-        if (token) {
-          headers['Authorization'] = 'Bearer ' + token;
+        if (isJwtExpired(token)) {
+          handleUnauthorizedSession(
+            'Your session has expired. Please sign in again.',
+            options.promptOnUnauth !== false
+          );
+          return {
+            ok: false,
+            status: 401,
+            requestId: null,
+            data: null,
+            error: {
+              code: 'SESSION_EXPIRED',
+              message: 'Your session has expired. Please sign in again.',
+              retryable: false
+            }
+          };
         }
+        headers['Authorization'] = 'Bearer ' + token;
       }
 
       let requestBody = undefined;
@@ -824,21 +1385,35 @@ export function renderGriotWebInterfaceHtml(): string {
         (res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-griot-request-id') : null);
 
       if (res.status === 401) {
-        clearStoredSessionToken();
-        if (!skipAuth && !options._retried401 && options.autoSession !== false) {
-          const refreshed = await ensureDemoSession(true);
-          if (refreshed) {
-            return griotFetch(endpoint, Object.assign({}, options, { _retried401: true }));
-          }
+        const errCode = (envelope && envelope.error && envelope.error.code) || 'UNAUTHENTICATED';
+        if (skipAuth) {
+          return {
+            ok: false,
+            status: 401,
+            requestId,
+            data: null,
+            error: {
+              code: errCode,
+              message:
+                (envelope && envelope.error && envelope.error.message) ||
+                'Invalid email or password.',
+              retryable: false
+            }
+          };
         }
+        // Authoritative 401 on authenticated route: clear credentials immediately, never retry expired token
+        handleUnauthorizedSession(
+          'Your session expired or could not be verified. Please sign in again.',
+          options.promptOnUnauth !== false
+        );
         return {
           ok: false,
           status: 401,
           requestId,
           data: null,
           error: {
-            code: (envelope && envelope.error && envelope.error.code) || 'UNAUTHENTICATED',
-            message: 'Your session expired or could not be authenticated. Please refresh and try again.',
+            code: errCode,
+            message: 'Your session expired or could not be authenticated. Please sign in again.',
             retryable: false
           }
         };
@@ -1046,41 +1621,423 @@ export function renderGriotWebInterfaceHtml(): string {
       badge.textContent = brandEcosystem ? 'Powered by Avantage' : 'Standalone Global';
     }
 
-    async function ensureDemoSession(forceRefresh = false) {
-      if (!forceRefresh) {
-        const existing = getStoredSessionToken();
-        if (existing) return existing;
-      } else {
-        clearStoredSessionToken();
+    function setAuthSubmitting(submitting, activeButtonId, loadingText) {
+      authSubmitting = submitting;
+      const loginBtn = document.getElementById('login-submit-btn');
+      const regBtn = document.getElementById('register-submit-btn');
+      const guestBtn = document.getElementById('guest-access-btn');
+
+      if (loginBtn) {
+        loginBtn.disabled = submitting;
+        loginBtn.textContent =
+          submitting && activeButtonId === 'login-submit-btn' ? loadingText : 'Sign In';
       }
-      const email = 'builder_' + Math.random().toString(36).slice(2, 8) + '@griot.africa';
-      const res = await griotFetch('/auth/register', {
-        method: 'POST',
-        skipAuth: true,
-        body: {
-          email,
-          displayName: 'GRIOT Builder',
-          password: 'GriotBuilderPassword2026!'
-        }
+      if (regBtn) {
+        regBtn.disabled = submitting;
+        regBtn.textContent =
+          submitting && activeButtonId === 'register-submit-btn' ? loadingText : 'Create Account';
+      }
+      if (guestBtn) {
+        guestBtn.disabled = submitting;
+        guestBtn.textContent =
+          submitting && activeButtonId === 'guest-access-btn'
+            ? loadingText
+            : 'Continue as Guest — Explore GRIOT';
+      }
+    }
+
+    function showAuthFeedback(message, type = 'error') {
+      const banner = document.getElementById('auth-feedback-banner');
+      if (!banner) return;
+      if (!message) {
+        banner.textContent = '';
+        banner.className = 'auth-feedback';
+        return;
+      }
+      banner.textContent = message;
+      banner.className = 'auth-feedback visible' + (type === 'info' ? ' info' : '');
+    }
+
+    function setAuthModalMode(mode) {
+      authModalMode = mode === 'register' ? 'register' : 'login';
+      const titleEl = document.getElementById('auth-modal-title');
+      const loginForm = document.getElementById('auth-form-login');
+      const regForm = document.getElementById('auth-form-register');
+      const loginTab = document.getElementById('auth-tab-login');
+      const regTab = document.getElementById('auth-tab-register');
+
+      if (titleEl) {
+        titleEl.textContent =
+          authModalMode === 'register' ? 'Create your GRIOT account' : 'Sign in to GRIOT AI';
+      }
+      if (loginForm) loginForm.style.display = authModalMode === 'login' ? 'block' : 'none';
+      if (regForm) regForm.style.display = authModalMode === 'register' ? 'block' : 'none';
+      if (loginTab) loginTab.className = 'auth-tab-btn' + (authModalMode === 'login' ? ' active' : '');
+      if (regTab) regTab.className = 'auth-tab-btn' + (authModalMode === 'register' ? ' active' : '');
+      showAuthFeedback('');
+    }
+
+    function openAuthModal(mode = 'login', noticeMessage = '', noticeType = 'info') {
+      closeAccountDropdown();
+      setAuthModalMode(mode);
+      if (noticeMessage) {
+        showAuthFeedback(noticeMessage, noticeType);
+      }
+      const overlay = document.getElementById('auth-modal-overlay');
+      if (overlay) {
+        overlay.classList.add('open');
+      }
+    }
+
+    function closeAuthModal() {
+      const overlay = document.getElementById('auth-modal-overlay');
+      if (overlay) {
+        overlay.classList.remove('open');
+      }
+      showAuthFeedback('');
+    }
+
+    function closeAccountDropdown() {
+      const dd = document.getElementById('account-dropdown');
+      if (dd) dd.classList.remove('open');
+    }
+
+    function toggleAccountDropdown() {
+      const dd = document.getElementById('account-dropdown');
+      if (!dd) return;
+      dd.classList.toggle('open');
+    }
+
+    function renderAuthHeader() {
+      const authControls = document.getElementById('header-auth-controls');
+      const accountWrap = document.getElementById('header-account-menu');
+      const avatarEl = document.getElementById('account-avatar-initial');
+      const triggerLabel = document.getElementById('account-trigger-label');
+      const nameEl = document.getElementById('account-user-name');
+      const emailEl = document.getElementById('account-user-email');
+      const orgEl = document.getElementById('account-org-name');
+      const modeBadge = document.getElementById('account-mode-badge');
+      const upgradeBtn = document.getElementById('account-upgrade-btn');
+      const signOutBtn = document.getElementById('sign-out-btn');
+
+      const sess = activeSession && activeSession.token ? activeSession : null;
+      if (!sess) {
+        if (authControls) authControls.style.display = 'flex';
+        if (accountWrap) accountWrap.classList.remove('visible');
+        closeAccountDropdown();
+        return;
+      }
+
+      if (authControls) authControls.style.display = 'none';
+      if (accountWrap) accountWrap.classList.add('visible');
+
+      const isGuest = sess.mode === 'guest';
+      const displayName =
+        (sess.user && sess.user.displayName) || (isGuest ? 'Guest Explorer' : 'GRIOT User');
+      const emailText = isGuest
+        ? 'Temporary Guest Session (Freemium)'
+        : (sess.user && sess.user.email) || '';
+      const orgName =
+        (sess.org && sess.org.name) ||
+        (isGuest ? 'Guest Freemium Workspace' : 'Personal Organisation');
+
+      if (avatarEl) avatarEl.textContent = displayName.trim().charAt(0).toUpperCase() || 'G';
+      if (triggerLabel) triggerLabel.textContent = isGuest ? 'Guest' : displayName;
+      if (nameEl) nameEl.textContent = displayName;
+      if (emailEl) emailEl.textContent = emailText;
+      if (orgEl) orgEl.textContent = orgName;
+      if (modeBadge) modeBadge.textContent = isGuest ? 'Guest Access (Freemium)' : 'Authenticated Account';
+      if (upgradeBtn) upgradeBtn.style.display = isGuest ? 'inline-flex' : 'none';
+      if (signOutBtn) signOutBtn.textContent = isGuest ? 'End Guest Session' : 'Sign Out';
+    }
+
+    async function hydrateOrganisationContext(silent = true) {
+      const res = await griotFetch('/organisations/current', {
+        method: 'GET',
+        promptOnUnauth: !silent
       });
-      if (res.ok && res.data && res.data.accessToken) {
-        sessionToken = res.data.accessToken;
-        try {
-          localStorage.setItem('griot_v1_jwt', sessionToken);
-        } catch {
-          // Ignore storage errors
-        }
+      if (!res.ok || !res.data || !res.data.organisation) {
+        return false;
       }
-      return sessionToken;
+      if (activeSession) {
+        const org = res.data.organisation;
+        activeSession.org = {
+          id: org.id,
+          name: org.name,
+          accessModel: org.accessModel || 'public_freemium',
+          brandingMode: org.brandingMode || 'griot_standalone'
+        };
+        persistAuthSession(activeSession);
+      }
+      return true;
+    }
+
+    async function completeAuthenticationTransition(newSession) {
+      resetAccountScopedUiState();
+      persistAuthSession(newSession);
+      closeAuthModal();
+
+      // Clear password inputs so credentials never linger in DOM inputs
+      const loginPw = document.getElementById('login-password');
+      const regPw = document.getElementById('register-password');
+      const regConfirm = document.getElementById('register-confirm-password');
+      if (loginPw) loginPw.value = '';
+      if (regPw) regPw.value = '';
+      if (regConfirm) regConfirm.value = '';
+
+      if (!newSession.org || !newSession.org.name) {
+        await hydrateOrganisationContext(true);
+      }
+
+      if (activeMode === 'ask') {
+        await loadConversationsSidebar();
+      } else if (activeMode === 'build') {
+        await loadSavedProjectsBar();
+      }
+    }
+
+    async function submitLogin(event) {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (authSubmitting) return { ok: false, error: { code: 'IN_PROGRESS', message: 'Sign in already in progress.' } };
+
+      const emailEl = document.getElementById('login-email');
+      const passwordEl = document.getElementById('login-password');
+      const email = emailEl ? emailEl.value.trim() : '';
+      const password = passwordEl ? passwordEl.value : '';
+
+      if (!isValidEmailFormat(email)) {
+        showAuthFeedback('Please enter a valid email address.');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid email address.' } };
+      }
+      if (!password) {
+        showAuthFeedback('Please enter your password.');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Password is required.' } };
+      }
+
+      showAuthFeedback('');
+      setAuthSubmitting(true, 'login-submit-btn', 'Signing in...');
+
+      try {
+        const res = await griotFetch('/auth/login', {
+          method: 'POST',
+          skipAuth: true,
+          body: { email, password }
+        });
+        if (!res.ok || !res.data || !res.data.accessToken) {
+          const msg =
+            res.status === 401
+              ? 'Invalid email or password. Please check your credentials and try again.'
+              : (res.error && res.error.message) || 'Unable to sign in. Please try again.';
+          showAuthFeedback(msg);
+          return res;
+        }
+
+        const user = res.data.user || {};
+        await completeAuthenticationTransition({
+          token: res.data.accessToken,
+          mode: 'authenticated',
+          user: {
+            id: user.id || '',
+            displayName: user.displayName || email,
+            email: user.email || email
+          },
+          org: {
+            id: res.data.orgId || user.personalOrgId || null,
+            name: ''
+          }
+        });
+        return res;
+      } finally {
+        setAuthSubmitting(false);
+      }
+    }
+
+    async function submitRegister(event) {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (authSubmitting) return { ok: false, error: { code: 'IN_PROGRESS', message: 'Registration already in progress.' } };
+
+      const nameEl = document.getElementById('register-name');
+      const emailEl = document.getElementById('register-email');
+      const pwEl = document.getElementById('register-password');
+      const confirmEl = document.getElementById('register-confirm-password');
+
+      const displayName = nameEl ? nameEl.value.trim() : '';
+      const email = emailEl ? emailEl.value.trim() : '';
+      const password = pwEl ? pwEl.value : '';
+      const confirmPassword = confirmEl ? confirmEl.value : '';
+
+      if (displayName.length < 2) {
+        showAuthFeedback('Please enter your display name (at least 2 characters).');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Display name is required.' } };
+      }
+      if (!isValidEmailFormat(email)) {
+        showAuthFeedback('Please enter a valid email address.');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Valid email is required.' } };
+      }
+      if (password.length < 8) {
+        showAuthFeedback('Password must be at least 8 characters long.');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters.' } };
+      }
+      if (password !== confirmPassword) {
+        showAuthFeedback('Passwords do not match. Please confirm your password.');
+        return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Passwords do not match.' } };
+      }
+
+      showAuthFeedback('');
+      setAuthSubmitting(true, 'register-submit-btn', 'Creating account...');
+
+      try {
+        const res = await griotFetch('/auth/register', {
+          method: 'POST',
+          skipAuth: true,
+          body: {
+            displayName,
+            email,
+            password,
+            createPersonalOrg: true
+          }
+        });
+        if (!res.ok || !res.data || !res.data.accessToken) {
+          const rawMsg = (res.error && res.error.message) || 'Could not create account.';
+          const friendlyMsg = /unique|duplicate|already exists/i.test(rawMsg)
+            ? 'An account with this email already exists. Please sign in instead.'
+            : rawMsg;
+          showAuthFeedback(friendlyMsg);
+          return res;
+        }
+
+        const user = res.data.user || {};
+        const org = res.data.personalOrg || null;
+        await completeAuthenticationTransition({
+          token: res.data.accessToken,
+          mode: 'authenticated',
+          user: {
+            id: user.id || '',
+            displayName: user.displayName || displayName,
+            email: user.email || email
+          },
+          org: {
+            id: org ? org.id : user.personalOrgId || null,
+            name: org ? org.name : ''
+          }
+        });
+        return res;
+      } finally {
+        setAuthSubmitting(false);
+      }
+    }
+
+    async function continueAsGuest() {
+      if (authSubmitting) return { ok: false, error: { code: 'IN_PROGRESS', message: 'Guest setup already in progress.' } };
+
+      showAuthFeedback('');
+      setAuthSubmitting(true, 'guest-access-btn', 'Starting guest session...');
+
+      try {
+        const guestSuffix =
+          Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+        const guestEmail = 'guest_' + guestSuffix + '@guest.griot.local';
+        const guestPassword =
+          'Guest_' + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+
+        const res = await griotFetch('/auth/register', {
+          method: 'POST',
+          skipAuth: true,
+          body: {
+            displayName: 'Guest Explorer',
+            email: guestEmail,
+            password: guestPassword,
+            createPersonalOrg: true
+          }
+        });
+        if (!res.ok || !res.data || !res.data.accessToken) {
+          showAuthFeedback(
+            (res.error && res.error.message) || 'Could not start guest session. Please try again.'
+          );
+          return res;
+        }
+
+        const user = res.data.user || {};
+        const org = res.data.personalOrg || null;
+        await completeAuthenticationTransition({
+          token: res.data.accessToken,
+          mode: 'guest',
+          user: {
+            id: user.id || '',
+            displayName: 'Guest Explorer',
+            email: null
+          },
+          org: {
+            id: org ? org.id : user.personalOrgId || null,
+            name: 'Guest Freemium Workspace',
+            accessModel: org ? org.accessModel : 'public_freemium'
+          }
+        });
+        return res;
+      } finally {
+        setAuthSubmitting(false);
+      }
+    }
+
+    function signOutUser() {
+      clearStoredSessionToken();
+      resetAccountScopedUiState();
+      closeAccountDropdown();
+      if (activeMode !== 'home') {
+        switchMode('home');
+      }
+    }
+
+    async function restoreExistingSession() {
+      const existing = getActiveSession();
+      if (!existing) {
+        renderAuthHeader();
+        return false;
+      }
+      if (isJwtExpired(existing.token)) {
+        clearStoredSessionToken();
+        resetAccountScopedUiState();
+        return false;
+      }
+      renderAuthHeader();
+      // Validate persisted session silently against backend /organisations/current
+      const valid = await hydrateOrganisationContext(true);
+      if (!valid) {
+        clearStoredSessionToken();
+        resetAccountScopedUiState();
+        return false;
+      }
+      return true;
     }
 
     async function switchMode(mode) {
+      activeMode = mode;
+      closeAccountDropdown();
       document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById('view-' + mode).classList.add('active');
-      document.getElementById('tab-' + mode).classList.add('active');
-      if (mode === 'ask') await loadConversationsSidebar();
-      if (mode === 'build') await loadSavedProjectsBar();
+      const viewEl = document.getElementById('view-' + mode);
+      const tabEl = document.getElementById('tab-' + mode);
+      if (viewEl) viewEl.classList.add('active');
+      if (tabEl) tabEl.classList.add('active');
+
+      if (mode === 'ask') {
+        if (getStoredSessionToken()) {
+          await loadConversationsSidebar();
+        } else {
+          openAuthModal('login', 'Sign in, create an account, or continue as Guest to use ASK GRIOT.', 'info');
+        }
+      }
+      if (mode === 'build') {
+        if (getStoredSessionToken()) {
+          await loadSavedProjectsBar();
+        } else {
+          openAuthModal('login', 'Sign in, create an account, or continue as Guest to start a guided project.', 'info');
+        }
+      }
     }
 
     async function loadConversationsSidebar() {
@@ -1134,6 +2091,17 @@ export function renderGriotWebInterfaceHtml(): string {
       const inputEl = document.getElementById('ask-input');
       const prompt = inputEl.value.trim();
       if (!prompt) return;
+
+      const token = getStoredSessionToken();
+      if (!token) {
+        openAuthModal('login', 'Sign in, create an account, or continue as Guest to send a message.', 'info');
+        return;
+      }
+      if (isJwtExpired(token)) {
+        handleUnauthorizedSession('Your session has expired. Please sign in again.', true);
+        return;
+      }
+
       inputEl.value = '';
 
       const chatBox = document.getElementById('chat-messages');
@@ -1214,6 +2182,15 @@ export function renderGriotWebInterfaceHtml(): string {
     async function startGuidedProject() {
       const idea = document.getElementById('build-idea').value.trim();
       if (!idea) return alert('Please describe what you want to create.');
+      const token = getStoredSessionToken();
+      if (!token) {
+        openAuthModal('login', 'Sign in, create an account, or continue as Guest to start a guided project.', 'info');
+        return;
+      }
+      if (isJwtExpired(token)) {
+        handleUnauthorizedSession('Your session has expired. Please sign in again.', true);
+        return;
+      }
       const technicalExperience = document.getElementById('build-skill').value;
       const budgetConstraint = document.getElementById('build-budget').value;
       const btn = document.getElementById('start-build-btn');
@@ -1386,7 +2363,15 @@ export function renderGriotWebInterfaceHtml(): string {
       }
     }
 
-    inspectBackendRuntime();
+    async function initializeApp() {
+      renderAuthHeader();
+      await Promise.all([
+        inspectBackendRuntime(),
+        restoreExistingSession()
+      ]);
+    }
+
+    initializeApp();
   </script>
 </body>
 </html>`;
